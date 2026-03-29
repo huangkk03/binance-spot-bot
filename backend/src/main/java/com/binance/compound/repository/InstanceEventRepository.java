@@ -3,6 +3,7 @@ package com.binance.compound.repository;
 import com.binance.compound.entity.InstanceEvent;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -24,4 +25,8 @@ public interface InstanceEventRepository extends JpaRepository<InstanceEvent, Lo
     List<Object[]> countSellStepByInstanceId(@Param("symbol") String symbol, @Param("isSimulation") Boolean isSimulation);
     
     List<InstanceEvent> findByIsSimulationOrderByCreatedAtUtcDesc(Boolean isSimulation, Pageable pageable);
+    
+    @Modifying
+    @Query("DELETE FROM InstanceEvent e WHERE e.isSimulation = :isSimulation")
+    void deleteByIsSimulation(@Param("isSimulation") Boolean isSimulation);
 }

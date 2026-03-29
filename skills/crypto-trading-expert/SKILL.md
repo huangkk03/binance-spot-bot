@@ -1,45 +1,79 @@
 ---
 name: binance-compound-pro-refactor
-description: 将 Python 脚本重构为 Vue 3 + Spring Boot 3 架构，包含 MySQL 持久化、真实行情模拟引擎及 Docker 全栈容器化。
-version: 1.3.0
+description: 将 Python 脚本重构为 Vue 3 + Spring Boot 3 架构，包含 MySQL 存储、TD9/TD13 信号预警、真实行情模拟引擎及 Docker 全栈容器化。
+version: 1.4.0
 author: Gemini-Collaborator
-tags: [binance-api, spring-boot-3, mysql, simulation-engine, docker-compose]
+tags: [binance-api, spring-boot-3, mysql, td-sequential, simulation-engine, docker-compose]
 ---
 
 # 币安复利交易平台全链路重构技能 (OpenCode 增强版)
 
 ## 阶段 1：数据架构与 MySQL 设计 (Data & MySQL)
-**目标**：设计支持“真实”与“模拟”双模式的 MySQL 数据库底座。
+**目标**：设计支持“真实”、“模拟”双模式以及“信号记录”的 MySQL 数据库底座。
 - **输出要求**：
-  - 生成 `DB_SCHEMA.sql`：包含 `cycle_instances` (实例状态)、`trade_records` (交易记录)、`sim_accounts` (模拟账户余额)。
+  - 生成 `DB_SCHEMA.sql`：包含 `cycle_instances` (实例状态)、`trade_records` (交易记录)、`sim_accounts` (模拟账户)、`price_alerts` (信号提醒记录)。
   - **核心约束**：
-    - **数据库选型**：明确使用 **MySQL 8.0+** 作为持久化存储。
-    - **双模式支持**：所有交易实体必须包含 `is_simulation` 字段（TINYINT/Boolean），以区分真实与模拟数据。
+    - **数据库选型**：明确使用 **MySQL 8.0+**。
+    - **双模式支持**：所有交易实体包含 `is_simulation` 字段。
     - **精度要求**：所有金额、价格、数量字段必须使用 `DECIMAL(32, 16)`。
 
 ## 阶段 2：后端策略引擎与模拟执行器 (Backend & Simulation)
-**目标**：实现 1% Step / 5% Cycle 逻辑，并挂载基于真实价格的模拟引擎。
-- **模拟充值 (Mock Deposit)**：实现 Service 方法，支持手动向模拟账户“注资”，并触发实例分配逻辑。
-- **模拟交易 (Simulation Engine)**：
-  - 接入币安实时价格 (WebSocket)，当价格触达策略点位时，模拟模式下更新本地 MySQL 余额而非调用币安 API。
-- **策略移植**：
-  - 1% Step：价格相对上次买入涨 1% 触发“卖出 -> 再买入”滚动。
-  - 5% Cycle：相对本轮初始价涨 5% 触发结算并开启下一轮。
-
-## 阶段 3：前端监控与模拟控制台 (Frontend Dashboard)
-**目标**：Vue 3.5+ 仪表盘，支持实时行情与模拟操作。
+**目标**：实现复利逻辑，并挂载基于真实价格的模拟执行器与行情扫描器。
+- **策略算法参数**：
+  - ** 模拟交易场景 **：
+    - **充值开仓**：当检测到有充值金额时，即全仓买入币对，并记录一个首次锚定价，如果是全选币对，则轮询。
+    - **价格止盈**：按当前市价买入价上涨固定点数则止盈。关联第一阶段的策略参数中的TAKE_PROFIT_PCT（固定止盈点）0.3则3%
+    - **价格回落**：当SELL_STEP止盈后，等待回调至首次买入价点再次触发->复利全仓买入。
+  - ** 真实交易场景：
+    - **充值开仓**：通过API帐户管理中的API key获取现货帐户资产，手动选择交易对并输入买入金额，手动执行Tick。如默认不输入金额，则全仓USDT开仓。并记录一个首次锚定价，如果是全选币对，则轮询。
+    - **价格止盈**：按当前市价买入价上涨固定点数则止盈。关联第一阶段的策略参数中的TAKE_PROFIT_PCT（固定止盈点）0.3则3%
+	- **价格回落**：当SELL_STEP止盈后，等待回调至首次买入价点再次触发->复利全仓买入。
+	
+## 阶段 3：前端监控与信号仪表盘 (Frontend Dashboard)
+**目标**：Vue 3.5+ 仪表盘，支持实时行情、模拟操作及 TD 信号显示。
 - **功能点**：
-  - **模拟控制台**：提供“模拟充值”按钮及参数（STEP_PCT/CYCLE_PCT）动态调节界面。
-  - **实时看板**：展示各实例（含模拟）的收益率、持仓均价及当前 Cycle ID。
+  - **控制台**：提供模拟充值按钮及参数动态调节界面。
+  - **信号看板**：实时显示当前各币种在 1H/4H 周期下的 TD 计数状态，高亮显示 TD9 和 TD13 提醒。
+
 ## 阶段 4：QA 自动化与 Docker 部署 (DevOps)
-**目标**：实现包含 MySQL 在内的全链路容器化。
-- **自动化测试**：
-  - 生成 `StrategySimulatorTest.java`：通过 Mock 价格序列验证模拟交易逻辑的准确性。
-- **Docker 编排 (必须包含 MySQL)**：
-  - 生成 `docker-compose.yml`：**必须**集成 `mysql` 容器、`backend`、`frontend` (Nginx) 及 `redis`。
-  - **自动初始化**：配置 MySQL 容器自动加载 `DB_SCHEMA.sql`。
-  - 生成多阶段构建的 `Dockerfile` 优化生产镜像。
+**目标**：实现包含 MySQL 自动初始化的全链路容器化。
+- **Docker 编排**：生成 `docker-compose.yml`，必须集成 `mysql` (含自动加载 `DB_SCHEMA.sql`)、`backend`、`frontend` 及 `redis`。
+- **自动化测试**：生成 `StrategySimulatorTest.java` 验证模拟交易逻辑。
+
+## 阶段 5：TD趋势预警系统 (Trend Alert System)
+**目标**：实现 1H 和 4H 级别的 TD9/TD13 信号扫描与提醒。
+- **计算逻辑**：
+  - **TD 序列扫描**：定时轮询或通过 WebSocket 获取 1 小时和 4 小时 K 线数据。
+  - **信号判定**：连续 9 根 K 线收盘价高于/低于 4 根前收盘价（TD9）；以及后续的 TD13 计数逻辑。
+- **提醒机制**：
+  - **后端**：当信号触发时，向数据库写入一条 `price_alerts` 记录。
+  - **前端/推送**：通过 WebSocket 或浏览器通知实现即时弹窗提醒，辅助判断复利策略的入场/离场时机。
+- **展示**：
+  - **前端/展示**:在前端实时行情展示当前属于TD几
+  
+## 阶段 6：控制台功能
+**目标**：管理策略参数和真实帐户管理
+- **模拟交易和真实交易切换**
+  - ** 一键开关模拟和真实交易进行切换
+- **模拟交易控制台**：
+  - ** 模拟充值 **：实现人工输入金额充值。
+  - ** 策略参数 **：分别有TAKE_PROFIT_PCT（固定止盈点）QUOTE_RESERVE（预留金额）MAX_ORDERS_PER_TICK（每轮最大订单）参数可调，并且写入数据库
+  - ** 手动执行Tick **：币对交易对选择”默认BTCUSDT ETHUSDT BNBUSDT ADAUSDT DOGEUSDT SOLUSDT
+  - ** 最近操作** ：显示最近操作充值和开单操作记录
+  - **管理模拟数据**：增加一键清空所有模拟数据。
+  
+- **真实交易控制台**：
+  ** API帐户管理 **：支持多帐户API KEY，保存进入数据库，提供下拉选项。
+  ** 现货帐户资产展示 **：自动从数据库关连api key查询真实数据展示
+  ** 手动执行Tick **： 增加指定金额开仓选项，默认如果没指定，则全仓USDT开仓。
+  
+## 阶段7：开单详细记录
+**目标**：实时记录交易对的状态(模拟交易和真实交易数据必须要分开）
+  - ** 活动实例**：交易对#实例-状态-锚定价-重新入场-数量-权益-未实现盈亏-盈亏%-收益率-标记价-更新时间
+    - **交易对实例详情**：时间-实例-周期-事件-价格-数量-金额-参考买入价-参考成本-盈亏-盈亏%-备注（记得要计算扣除手续费）200U的手续费买卖都是0.1%
+
 
 ## 示例触发指令 (Usage)
-- "根据 binance-compound-pro-refactor 技能，开始阶段 1，生成 MySQL 数据库设计和 Entity 代码。"
-- "执行阶段 4，生成完整的 docker-compose.yml，包含 MySQL 的自动初始化配置。"
+- "根据 binance-compound-pro-refactor 技能，开始阶段 1，设计 MySQL 数据库。"
+- "执行阶段 5，编写 1H/4H K 线 TD9/TD13 信号的扫描逻辑。"
+- "现在执行阶段 4，生成完整的 Docker 部署配置。"

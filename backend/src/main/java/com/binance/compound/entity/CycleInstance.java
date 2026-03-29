@@ -68,6 +68,8 @@ public class CycleInstance {
     @Builder.Default
     private BigDecimal quoteAmount = BigDecimal.ZERO;
     
+    private Long apiAccountId;
+    
     @Column(updatable = false)
     private LocalDateTime createdAtUtc;
     

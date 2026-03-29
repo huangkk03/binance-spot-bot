@@ -19,6 +19,18 @@
         <div class="stat-label">USDT 余额</div>
         <div class="stat-value">{{ usdtBalance }}</div>
       </div>
+      <div class="stat-card mode-toggle">
+        <div class="stat-label">交易模式</div>
+        <div class="mode-switch">
+          <span :class="{ active: !store.isSimulation }">真实</span>
+          <el-switch 
+            v-model="isSimMode" 
+            active-text="模拟" 
+            inactive-text="" 
+          />
+          <span :class="{ active: store.isSimulation }">模拟</span>
+        </div>
+      </div>
     </div>
 
     <div class="prices-section">
@@ -46,6 +58,10 @@
             <div class="kline-row">
               <span class="label">成交量:</span>
               <span class="value">{{ formatQty(store.klines[sym].volume) }}</span>
+            </div>
+            <div class="kline-row" v-if="getTdInfo(sym)">
+              <span class="label">TD计数:</span>
+              <span class="value" :class="getTdInfo(sym).class">{{ getTdInfo(sym).text }}</span>
             </div>
           </div>
           <div v-else class="kline-loading">
@@ -117,14 +133,14 @@
 
     <el-dialog v-model="showInstanceDialog" :title="selectedInstanceSymbol + ' 实例详情'" width="95%" top="5vh" destroy-on-close>
       <template #default>
-        <InstanceDetail :symbol="selectedInstanceSymbol" :instance-id="selectedInstanceId" />
+        <InstanceDetail :symbol="selectedInstanceSymbol" :instance-id="selectedInstanceId" :is-simulation="store.isSimulation" />
       </template>
     </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { useCompoundStore } from '../stores/compound'
 import KlineChart from '../components/KlineChart.vue'
 import InstanceDetail from '../components/InstanceDetail.vue'
@@ -137,6 +153,10 @@ const showInstanceDialog = ref(false)
 const selectedSymbol = ref('')
 const selectedInstanceSymbol = ref('')
 const selectedInstanceId = ref(0)
+const isSimMode = computed({
+  get: () => store.isSimulation,
+  set: (val) => store.setSimulationMode(val)
+})
 
 const usdtBalance = computed(() => {
   const account = store.accounts['USDT']
@@ -207,6 +227,37 @@ function getPriceClass(symbol) {
   return ''
 }
 
+function getTdInfo(symbol) {
+  const alert1h = store.alerts[`${symbol}_1h`]
+  const alert4h = store.alerts[`${symbol}_4h`]
+  
+  if (!alert1h && !alert4h) return null
+  
+  const parts = []
+  if (alert1h) {
+    parts.push(`1H:${alert1h.tdCount}`)
+  }
+  if (alert4h) {
+    parts.push(`4H:${alert4h.tdCount}`)
+  }
+  
+  const maxCount = Math.max(alert1h?.tdCount || 0, alert4h?.tdCount || 0)
+  const isBuy = alert1h?.alertType === 'TD_BUY' || alert4h?.alertType === 'TD_BUY'
+  const isSell = alert1h?.alertType === 'TD_SELL' || alert4h?.alertType === 'TD_SELL'
+  
+  let tdClass = ''
+  if (maxCount >= 9) {
+    tdClass = isBuy ? 'td-buy' : isSell ? 'td-sell' : ''
+  } else if (maxCount >= 6) {
+    tdClass = 'td-counting'
+  }
+  
+  return {
+    text: parts.join(' / ') + (maxCount >= 9 ? '⚠️' : ''),
+    class: tdClass
+  }
+}
+
 function openKlineDetail(symbol) {
   selectedSymbol.value = symbol
   showKlineDialog.value = true
@@ -224,10 +275,12 @@ onMounted(async () => {
   await store.fetchAccounts()
   await store.fetchKLines(symbols)
   await store.fetchConfig()
+  await store.fetchAlerts()
   
   setInterval(async () => {
     await store.fetchPrices()
     await store.fetchKLines(symbols)
+    await store.fetchAlerts()
   }, 5000)
 })
 </script>
@@ -344,6 +397,37 @@ h2 {
 
 .kline-row .value.price-down {
   color: #f6465d;
+}
+
+.kline-row .value.td-counting {
+  color: #f0b90b;
+}
+
+.kline-row .value.td-buy,
+.kline-row .value.td-sell {
+  color: #f6465d;
+  font-weight: bold;
+}
+
+.mode-toggle {
+  min-width: 180px;
+}
+
+.mode-switch {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  justify-content: center;
+}
+
+.mode-switch span {
+  color: #848e9c;
+  font-size: 0.875rem;
+}
+
+.mode-switch span.active {
+  color: #f0b90b;
+  font-weight: 600;
 }
 
 .kline-loading {

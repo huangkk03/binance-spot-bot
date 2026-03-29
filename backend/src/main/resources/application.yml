@@ -17,7 +17,7 @@ spring:
   
   jpa:
     hibernate:
-      ddl-auto: validate
+      ddl-auto: update
     show-sql: false
     properties:
       hibernate:
@@ -46,7 +46,8 @@ binance:
   proxy-url: ${BINANCE_PROXY:}
 
 simulation:
-  default-step-pct: 0.01
-  default-cycle-pct: 0.05
+  default-take-profit-pct: 0.03
   default-quote-reserve: 10
   default-max-orders-per-tick: 5
+  auto-tick-enabled: true
+  auto-tick-interval-ms: 30000

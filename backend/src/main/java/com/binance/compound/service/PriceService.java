@@ -12,6 +12,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -30,7 +31,7 @@ public class PriceService {
     private final Set<String> subscribedSymbols = ConcurrentHashMap.newKeySet();
     
     private static final String BINANCE_TICKER_URL = "https://api.binance.com/api/v3/ticker/price?symbol=%s";
-    private static final String BINANCE_KLINE_URL = "https://api.binance.com/api/v3/klines?symbol=%s&interval=1m&limit=1";
+    private static final String BINANCE_KLINE_URL = "https://api.binance.com/api/v3/klines?symbol=%s&interval=%s&limit=%d";
     
     public BigDecimal getPrice(String symbol) {
         String normalized = symbol.toUpperCase();
@@ -130,13 +131,17 @@ public class PriceService {
     }
     
     public KLineData getKLine(String symbol) {
+        return getKLine(symbol, "1m", 1);
+    }
+    
+    public KLineData getKLine(String symbol, String interval, int limit) {
         String normalized = symbol.toUpperCase();
         if (!normalized.endsWith("USDT")) {
             normalized = normalized + "USDT";
         }
         
         try {
-            String url = String.format(BINANCE_KLINE_URL, normalized);
+            String url = String.format(BINANCE_KLINE_URL, normalized, interval, limit);
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(url))
                     .timeout(Duration.ofSeconds(5))
@@ -156,14 +161,47 @@ public class PriceService {
         return null;
     }
     
+    public List<KLineData> getKLines(String symbol, String interval, int limit) {
+        String normalized = symbol.toUpperCase();
+        if (!normalized.endsWith("USDT")) {
+            normalized = normalized + "USDT";
+        }
+        
+        try {
+            String url = String.format(BINANCE_KLINE_URL, normalized, interval, limit);
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .timeout(Duration.ofSeconds(5))
+                    .GET()
+                    .build();
+            
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            
+            if (response.statusCode() == 200) {
+                String body = response.body();
+                return parseKLines(body);
+            }
+        } catch (Exception e) {
+            log.warn("Failed to fetch klines for {}: {}", symbol, e.getMessage());
+        }
+        
+        return null;
+    }
+    
     private KLineData parseKLine(String json) {
+        List<KLineData> klines = parseKLines(json);
+        return klines != null && !klines.isEmpty() ? klines.get(0) : null;
+    }
+    
+    private List<KLineData> parseKLines(String json) {
         try {
             if (json.startsWith("[")) {
                 ObjectMapper mapper = new ObjectMapper();
                 var array = mapper.readValue(json, List.class);
-                if (array != null && !array.isEmpty()) {
-                    var candle = (List)array.get(0);
-                    return KLineData.builder()
+                List<KLineData> klines = new ArrayList<>();
+                for (var item : array) {
+                    var candle = (List<?>) item;
+                    klines.add(KLineData.builder()
                             .openTime(((Number)candle.get(0)).longValue())
                             .open(new BigDecimal(candle.get(1).toString()))
                             .high(new BigDecimal(candle.get(2).toString()))
@@ -171,8 +209,9 @@ public class PriceService {
                             .close(new BigDecimal(candle.get(4).toString()))
                             .volume(new BigDecimal(candle.get(5).toString()))
                             .closeTime(((Number)candle.get(6)).longValue())
-                            .build();
+                            .build());
                 }
+                return klines;
             }
         } catch (Exception e) {
             log.warn("Failed to parse kline: {}", e.getMessage());

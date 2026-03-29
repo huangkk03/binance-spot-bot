@@ -6,6 +6,7 @@ import com.binance.compound.repository.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,11 +29,8 @@ public class SimulationEngine {
     private final StrategyConfigRepository strategyConfigRepository;
     private final PriceService priceService;
     
-    @Value("${simulation.default-step-pct:0.01}")
-    private BigDecimal defaultStepPct;
-    
-    @Value("${simulation.default-cycle-pct:0.05}")
-    private BigDecimal defaultCyclePct;
+    @Value("${simulation.default-take-profit-pct:0.03}")
+    private BigDecimal defaultTakeProfitPct;
     
     @Value("${simulation.default-quote-reserve:10}")
     private BigDecimal defaultQuoteReserve;
@@ -42,10 +40,21 @@ public class SimulationEngine {
     
     private static final String EVENT_DEPOSIT_ALLOC = "DEPOSIT_ALLOC";
     private static final String EVENT_BUY_OPEN = "BUY_OPEN";
-    private static final String EVENT_SELL_STEP = "SELL_STEP";
-    private static final String EVENT_SELL_CYCLE = "SELL_CYCLE";
-    private static final String EVENT_BUY_REBUY = "BUY_REBUY";
+    private static final String EVENT_TAKE_PROFIT = "TAKE_PROFIT";
+    private static final String EVENT_REBUY_COMPOUND = "REBUY_COMPOUND";
     private static final String EVENT_WAIT_REENTRY = "WAIT_REENTRY";
+    
+    private static final BigDecimal FEE_RATE = new BigDecimal("0.001");
+    private static final BigDecimal TAKER_FEE_RATE = new BigDecimal("0.001");
+    
+    private static final List<String> DEFAULT_SYMBOLS = Arrays.asList(
+            "BTCUSDT", "ETHUSDT", "BNBUSDT", "ADAUSDT", "DOGEUSDT", "SOLUSDT");
+    
+    @Value("${simulation.auto-tick-enabled:true}")
+    private Boolean autoTickEnabled;
+    
+    @Value("${simulation.auto-tick-interval-ms:30000}")
+    private Long autoTickIntervalMs;
     
     @Transactional
     public List<String> executeTick(List<String> symbols, Boolean isSimulation) {
@@ -129,7 +138,7 @@ public class SimulationEngine {
                         remainingOrders--;
                     }
                 } else {
-                    String result = tryCloseOrRebuy(inst, price, spendableQuote, isSimulation);
+                    String result = tryTakeProfitOrRebuy(inst, price, spendableQuote, isSimulation);
                     if (result != null) {
                         actions.add(result);
                         remainingOrders--;
@@ -203,11 +212,9 @@ public class SimulationEngine {
     private String tryOpenPosition(CycleInstance inst, BigDecimal price, BigDecimal spendableQuote, Boolean isSimulation) {
         BigDecimal reentryPrice = inst.getReentryPrice();
         if (reentryPrice.compareTo(BigDecimal.ZERO) > 0) {
-            BigDecimal tolerance = getReentryTolerance(isSimulation);
-            BigDecimal allowPrice = reentryPrice.multiply(BigDecimal.ONE.add(tolerance));
-            if (price.compareTo(allowPrice) > 0) {
-                return String.format("WAIT_REENTRY: instance#%d price=%s > reentry=%s", 
-                        inst.getInstanceId(), price, allowPrice);
+            if (price.compareTo(reentryPrice) > 0) {
+                return String.format("WAIT_REENTRY: %s price=%s > reentry=%s", 
+                        inst.getSymbol(), price, reentryPrice);
             }
             inst.setReentryPrice(BigDecimal.ZERO);
         }
@@ -219,12 +226,14 @@ public class SimulationEngine {
         
         BigDecimal baseQty = quoteToSpend.divide(price, 16, RoundingMode.DOWN);
         BigDecimal cumQuote = baseQty.multiply(price).setScale(16, RoundingMode.DOWN);
+        BigDecimal buyFee = cumQuote.multiply(FEE_RATE).setScale(16, RoundingMode.DOWN);
+        BigDecimal totalCost = cumQuote.add(buyFee);
         
         SimAccount quoteAccount = simAccountRepository
                 .findByAssetAndIsSimulation("USDT", isSimulation)
                 .orElse(null);
         if (quoteAccount != null) {
-            quoteAccount.setFreeBalance(quoteAccount.getFreeBalance().subtract(cumQuote));
+            quoteAccount.setFreeBalance(quoteAccount.getFreeBalance().subtract(totalCost));
             simAccountRepository.save(quoteAccount);
         }
         
@@ -241,7 +250,7 @@ public class SimulationEngine {
         
         inst.setIsOpen(true);
         inst.setBaseQty(baseQty);
-        inst.setSpentQuote(cumQuote);
+        inst.setSpentQuote(totalCost);
         inst.setQuoteAmount(cumQuote);
         
         if (inst.getCycleStartPrice().compareTo(BigDecimal.ZERO) == 0) {
@@ -261,8 +270,6 @@ public class SimulationEngine {
                     .openedAtUtc(LocalDateTime.now())
                     .build();
             cycleOpenRecordRepository.save(openRecord);
-        } else {
-            inst.setLastActionPrice(price);
         }
         
         cycleInstanceRepository.save(inst);
@@ -274,32 +281,35 @@ public class SimulationEngine {
                 inst.getSymbol(), inst.getInstanceId(), baseQty, price);
     }
     
-    private String tryCloseOrRebuy(CycleInstance inst, BigDecimal price, BigDecimal spendableQuote, Boolean isSimulation) {
-        BigDecimal stepPct = getStepPct(isSimulation);
-        BigDecimal cyclePct = getCyclePct(isSimulation);
+    private String tryTakeProfitOrRebuy(CycleInstance inst, BigDecimal price, BigDecimal spendableQuote, Boolean isSimulation) {
+        BigDecimal takeProfitPct = getTakeProfitPct(isSimulation);
+        BigDecimal anchorPrice = inst.getAnchorPrice();
+        BigDecimal cycleStartPrice = inst.getCycleStartPrice();
+        BigDecimal baseQty = inst.getBaseQty();
         
-        BigDecimal triggerPrice = inst.getLastActionPrice()
-                .multiply(BigDecimal.ONE.add(stepPct));
-        
-        if (price.compareTo(triggerPrice) < 0) {
+        if (baseQty.compareTo(BigDecimal.ZERO) <= 0) {
             return null;
         }
         
-        BigDecimal qty = inst.getBaseQty();
-        if (qty.compareTo(BigDecimal.ZERO) <= 0) {
-            return null;
+        BigDecimal takeProfitPrice = cycleStartPrice.multiply(BigDecimal.ONE.add(takeProfitPct));
+        
+        if (price.compareTo(takeProfitPrice) >= 0) {
+            return executeTakeProfit(inst, price, baseQty, isSimulation);
         }
         
-        BigDecimal cumQuote = qty.multiply(price).setScale(16, RoundingMode.DOWN);
-        BigDecimal feeRate = BigDecimal.ZERO;
-        BigDecimal fee = cumQuote.multiply(feeRate).setScale(16, RoundingMode.DOWN);
-        BigDecimal netQuote = cumQuote.subtract(fee);
+        return null;
+    }
+    
+    private String executeTakeProfit(CycleInstance inst, BigDecimal price, BigDecimal baseQty, Boolean isSimulation) {
+        BigDecimal cumQuote = baseQty.multiply(price).setScale(16, RoundingMode.DOWN);
+        BigDecimal sellFee = cumQuote.multiply(TAKER_FEE_RATE).setScale(16, RoundingMode.DOWN);
+        BigDecimal netQuote = cumQuote.subtract(sellFee);
         
         SimAccount baseAccount = simAccountRepository
                 .findByAssetAndIsSimulation(inst.getSymbol().replace("USDT", ""), isSimulation)
                 .orElse(null);
         if (baseAccount != null) {
-            baseAccount.setFreeBalance(baseAccount.getFreeBalance().subtract(qty));
+            baseAccount.setFreeBalance(baseAccount.getFreeBalance().subtract(baseQty));
             simAccountRepository.save(baseAccount);
         }
         
@@ -314,96 +324,107 @@ public class SimulationEngine {
         quoteAccount.setFreeBalance(quoteAccount.getFreeBalance().add(netQuote));
         simAccountRepository.save(quoteAccount);
         
-        boolean cycleDone = price.compareTo(
-                inst.getCycleStartPrice().multiply(BigDecimal.ONE.add(cyclePct))) >= 0;
+        BigDecimal profit = netQuote.subtract(inst.getSpentQuote());
         
-        String eventType = cycleDone ? EVENT_SELL_CYCLE : EVENT_SELL_STEP;
-        recordEvent(inst.getSymbol(), inst.getInstanceId(), inst.getCycleId(), eventType,
-                price, qty, netQuote, cycleDone ? "cycle_done_sell" : "step_sell", isSimulation);
-        
-        if (remainingOrders <= 0 || cycleDone) {
-            inst.setIsOpen(false);
-            inst.setBaseQty(BigDecimal.ZERO);
-            inst.setSpentQuote(BigDecimal.ZERO);
-            inst.setQuoteAmount(netQuote);
-            
-            if (cycleDone) {
-                inst.setCycleId(inst.getCycleId() + 1);
-                inst.setReentryPrice(inst.getAnchorPrice());
-            }
-            
-            inst.setCycleStartPrice(BigDecimal.ZERO);
-            inst.setLastActionPrice(BigDecimal.ZERO);
-            
-            cycleInstanceRepository.save(inst);
-            
-            return String.format("SELL_%s: %s instance#%d qty=%s at %s",
-                    cycleDone ? "CYCLE" : "STEP", inst.getSymbol(), inst.getInstanceId(), qty, price);
-        }
-        
-        BigDecimal quoteToRebuy = netQuote;
-        if (spendableQuote.compareTo(quoteToRebuy) < 0) {
-            inst.setIsOpen(false);
-            inst.setBaseQty(BigDecimal.ZERO);
-            inst.setSpentQuote(BigDecimal.ZERO);
-            inst.setQuoteAmount(quoteToRebuy);
-            inst.setCycleStartPrice(BigDecimal.ZERO);
-            inst.setLastActionPrice(BigDecimal.ZERO);
-            cycleInstanceRepository.save(inst);
-            return null;
-        }
-        
-        BigDecimal newBaseQty = quoteToRebuy.divide(price, 16, RoundingMode.DOWN);
-        BigDecimal newCumQuote = newBaseQty.multiply(price).setScale(16, RoundingMode.DOWN);
-        
-        if (quoteAccount.getFreeBalance().compareTo(newCumQuote) < 0) {
-            inst.setIsOpen(false);
-            inst.setBaseQty(BigDecimal.ZERO);
-            inst.setSpentQuote(BigDecimal.ZERO);
-            inst.setQuoteAmount(quoteToRebuy);
-            inst.setCycleStartPrice(BigDecimal.ZERO);
-            inst.setLastActionPrice(BigDecimal.ZERO);
-            cycleInstanceRepository.save(inst);
-            return null;
-        }
-        
-        quoteAccount.setFreeBalance(quoteAccount.getFreeBalance().subtract(newCumQuote));
-        simAccountRepository.save(quoteAccount);
-        
-        baseAccount = simAccountRepository
-                .findByAssetAndIsSimulation(inst.getSymbol().replace("USDT", ""), isSimulation)
-                .orElse(null);
-        if (baseAccount != null) {
-            baseAccount.setFreeBalance(baseAccount.getFreeBalance().add(newBaseQty));
-            simAccountRepository.save(baseAccount);
-        }
-        
-        inst.setIsOpen(true);
-        inst.setBaseQty(newBaseQty);
-        inst.setSpentQuote(newCumQuote);
-        inst.setQuoteAmount(quoteToRebuy);
+        inst.setIsOpen(false);
+        inst.setBaseQty(BigDecimal.ZERO);
+        inst.setSpentQuote(BigDecimal.ZERO);
+        inst.setQuoteAmount(netQuote);
+        inst.setCycleStartPrice(BigDecimal.ZERO);
         inst.setLastActionPrice(price);
+        inst.setReentryPrice(inst.getAnchorPrice());
+        inst.setCycleId(inst.getCycleId() + 1);
+        
         cycleInstanceRepository.save(inst);
         
-        recordEvent(inst.getSymbol(), inst.getInstanceId(), inst.getCycleId(), EVENT_BUY_REBUY,
-                price, newBaseQty, newCumQuote, "step_rebuy", isSimulation);
+        recordEvent(inst.getSymbol(), inst.getInstanceId(), inst.getCycleId(), EVENT_TAKE_PROFIT,
+                price, baseQty, netQuote, "profit=" + profit, isSimulation);
         
-        return String.format("SELL_BUY: %s instance#%d qty=%s at %s -> rebought %s", 
-                inst.getSymbol(), inst.getInstanceId(), qty, price, newBaseQty);
+        log.info("TAKE_PROFIT: {} instance#{} profit={} quote={}", 
+                inst.getSymbol(), inst.getInstanceId(), profit, netQuote);
+        
+        return String.format("TAKE_PROFIT: %s instance#%d profit=%s at %s",
+                inst.getSymbol(), inst.getInstanceId(), profit, price);
     }
     
-    private int remainingOrders = 5;
-    
-    private BigDecimal getStepPct(Boolean isSimulation) {
-        return strategyConfigRepository.findByConfigKeyAndIsSimulation("STEP_PCT", isSimulation)
-                .map(c -> new BigDecimal(c.getConfigValue()))
-                .orElse(defaultStepPct);
+    @Transactional
+    public String triggerRebuy(Long instanceId, BigDecimal price, Boolean isSimulation) {
+        Optional<CycleInstance> instOpt = cycleInstanceRepository.findById(instanceId);
+        if (instOpt.isEmpty()) {
+            return "Instance not found";
+        }
+        
+        CycleInstance inst = instOpt.get();
+        if (inst.getIsOpen()) {
+            return "Position already open";
+        }
+        
+        BigDecimal spendableQuote = getSpendableQuote("USDT", isSimulation);
+        BigDecimal quoteToSpend = inst.getQuoteAmount().min(spendableQuote);
+        
+        if (quoteToSpend.compareTo(BigDecimal.ZERO) <= 0) {
+            return "No quote to spend";
+        }
+        
+        BigDecimal baseQty = quoteToSpend.divide(price, 16, RoundingMode.DOWN);
+        BigDecimal cumQuote = baseQty.multiply(price).setScale(16, RoundingMode.DOWN);
+        BigDecimal buyFee = cumQuote.multiply(FEE_RATE).setScale(16, RoundingMode.DOWN);
+        BigDecimal totalCost = cumQuote.add(buyFee);
+        
+        SimAccount quoteAccount = simAccountRepository
+                .findByAssetAndIsSimulation("USDT", isSimulation)
+                .orElse(null);
+        if (quoteAccount != null) {
+            quoteAccount.setFreeBalance(quoteAccount.getFreeBalance().subtract(totalCost));
+            simAccountRepository.save(quoteAccount);
+        }
+        
+        SimAccount baseAccount = simAccountRepository
+                .findByAssetAndIsSimulation(inst.getSymbol().replace("USDT", ""), isSimulation)
+                .orElseGet(() -> SimAccount.builder()
+                        .asset(inst.getSymbol().replace("USDT", ""))
+                        .freeBalance(BigDecimal.ZERO)
+                        .lockedBalance(BigDecimal.ZERO)
+                        .isSimulation(isSimulation)
+                        .build());
+        baseAccount.setFreeBalance(baseAccount.getFreeBalance().add(baseQty));
+        simAccountRepository.save(baseAccount);
+        
+        inst.setIsOpen(true);
+        inst.setBaseQty(baseQty);
+        inst.setSpentQuote(totalCost);
+        inst.setQuoteAmount(cumQuote);
+        inst.setCycleId(inst.getCycleId() + 1);
+        inst.setCycleStartPrice(price);
+        inst.setLastActionPrice(price);
+        
+        CycleOpenRecord openRecord = CycleOpenRecord.builder()
+                .symbol(inst.getSymbol())
+                .instanceId(inst.getInstanceId())
+                .cycleId(inst.getCycleId())
+                .isSimulation(isSimulation)
+                .startPrice(price)
+                .quoteAmount(cumQuote)
+                .openedAtUtc(LocalDateTime.now())
+                .build();
+        cycleOpenRecordRepository.save(openRecord);
+        
+        cycleInstanceRepository.save(inst);
+        
+        recordEvent(inst.getSymbol(), inst.getInstanceId(), inst.getCycleId(), EVENT_REBUY_COMPOUND,
+                price, baseQty, cumQuote, "rebuy_compound fee=" + buyFee, isSimulation);
+        
+        log.info("REBUY_COMPOUND: {} instance#{} cycle={} qty={} at {}",
+                inst.getSymbol(), inst.getInstanceId(), inst.getCycleId(), baseQty, price);
+        
+        return String.format("REBUY_COMPOUND: %s instance#%d cycle=%d qty=%s at %s",
+                inst.getSymbol(), inst.getInstanceId(), inst.getCycleId(), baseQty, price);
     }
     
-    private BigDecimal getCyclePct(Boolean isSimulation) {
-        return strategyConfigRepository.findByConfigKeyAndIsSimulation("CYCLE_PCT", isSimulation)
+    private BigDecimal getTakeProfitPct(Boolean isSimulation) {
+        return strategyConfigRepository.findByConfigKeyAndIsSimulation("TAKE_PROFIT_PCT", isSimulation)
                 .map(c -> new BigDecimal(c.getConfigValue()))
-                .orElse(defaultCyclePct);
+                .orElse(defaultTakeProfitPct);
     }
     
     private BigDecimal getQuoteReserve(Boolean isSimulation) {
@@ -416,12 +437,6 @@ public class SimulationEngine {
         return strategyConfigRepository.findByConfigKeyAndIsSimulation("MAX_ORDERS_PER_TICK", isSimulation)
                 .map(c -> Integer.parseInt(c.getConfigValue()))
                 .orElse(defaultMaxOrdersPerTick);
-    }
-    
-    private BigDecimal getReentryTolerance(Boolean isSimulation) {
-        return strategyConfigRepository.findByConfigKeyAndIsSimulation("REENTRY_TOLERANCE_PCT", isSimulation)
-                .map(c -> new BigDecimal(c.getConfigValue()))
-                .orElse(BigDecimal.ZERO);
     }
     
     private BigDecimal getSpendableQuote(String quoteAsset, Boolean isSimulation) {
@@ -502,5 +517,26 @@ public class SimulationEngine {
                 .updatedAtUtc(entity.getUpdatedAtUtc())
                 .createdAtUtc(entity.getCreatedAtUtc())
                 .build();
+    }
+    
+    @Scheduled(fixedRateString = "${simulation.auto-tick-interval-ms:30000}")
+    public void autoExecuteTick() {
+        log.debug("Auto tick scheduler triggered, enabled={}", autoTickEnabled);
+        if (autoTickEnabled == null || !autoTickEnabled) {
+            log.debug("Auto tick is disabled");
+            return;
+        }
+        
+        try {
+            log.info("Auto tick starting for symbols: {}", DEFAULT_SYMBOLS);
+            List<String> actions = executeTick(DEFAULT_SYMBOLS, true);
+            if (!actions.isEmpty()) {
+                log.info("Auto tick executed, actions: {}", actions);
+            } else {
+                log.debug("Auto tick completed with no actions");
+            }
+        } catch (Exception e) {
+            log.error("Auto tick failed: {}", e.getMessage(), e);
+        }
     }
 }

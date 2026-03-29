@@ -153,10 +153,54 @@ CREATE TABLE strategy_config (
 
 -- Insert default config values
 INSERT INTO strategy_config (config_key, config_value, is_simulation) VALUES
-    ('STEP_PCT', '0.01', 1),
-    ('CYCLE_PCT', '0.05', 1),
+    ('TAKE_PROFIT_PCT', '0.03', 1),
     ('BASE_QUOTE_AMOUNT', '0', 1),
     ('MAX_ORDERS_PER_TICK', '5', 1),
-    ('QUOTE_RESERVE', '10', 1),
-    ('REENTRY_TO_ANCHOR', 'true', 1),
-    ('REENTRY_TOLERANCE_PCT', '0', 1);
+    ('QUOTE_RESERVE', '10', 1);
+
+-- ============================================================
+-- 9. price_alerts: TD9/TD13 trend alerts
+-- ============================================================
+CREATE TABLE IF NOT EXISTS price_alerts (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    symbol VARCHAR(20) NOT NULL COMMENT 'Trading pair, e.g. BTCUSDT',
+    interval VARCHAR(10) NOT NULL COMMENT 'Kline interval, e.g. 1h, 4h',
+    alert_type VARCHAR(20) NOT NULL COMMENT 'TD_BUY or TD_SELL',
+    td_count INT NOT NULL DEFAULT 0 COMMENT 'Current TD count',
+    current_price DECIMAL(32, 16) NOT NULL COMMENT 'Current price when checked',
+    trigger_price DECIMAL(32, 16) NOT NULL DEFAULT 0 COMMENT 'Price when triggered',
+    triggered TINYINT(1) NOT NULL DEFAULT 0 COMMENT '1=triggered, 0=not triggered',
+    message VARCHAR(500) DEFAULT '' COMMENT 'Alert message',
+    created_at_utc DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    
+    INDEX idx_symbol_interval_alert (symbol, interval, alert_type),
+    INDEX idx_created_at (created_at_utc)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
+-- 10. api_config: API configuration (API keys, etc.)
+-- ============================================================
+CREATE TABLE api_config (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    config_key VARCHAR(50) NOT NULL UNIQUE,
+    config_value TEXT NOT NULL,
+    updated_at_utc DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
+-- 11. api_accounts: Multiple API account support
+-- ============================================================
+CREATE TABLE api_accounts (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    account_name VARCHAR(50) NOT NULL COMMENT 'Display name for dropdown',
+    api_key TEXT NOT NULL COMMENT 'Binance API Key',
+    api_secret TEXT NOT NULL COMMENT 'Binance API Secret',
+    use_proxy TINYINT(1) NOT NULL DEFAULT 0 COMMENT '1=use proxy, 0=no proxy',
+    proxy_url VARCHAR(200) DEFAULT '' COMMENT 'Proxy URL',
+    testnet TINYINT(1) NOT NULL DEFAULT 1 COMMENT '1=testnet, 0=mainnet',
+    is_active TINYINT(1) NOT NULL DEFAULT 0 COMMENT '1=currently selected',
+    created_at_utc DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at_utc DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    
+    INDEX idx_is_active (is_active)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

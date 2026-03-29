@@ -3,6 +3,7 @@ package com.binance.compound.repository;
 import com.binance.compound.entity.CycleInstance;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -22,6 +23,8 @@ public interface CycleInstanceRepository extends JpaRepository<CycleInstance, Lo
     
     List<CycleInstance> findByIsSimulationOrderByIdDesc(Boolean isSimulation, Pageable pageable);
     
+    List<CycleInstance> findBySymbolInAndIsSimulationAndIsOpenTrue(List<String> symbols, Boolean isSimulation);
+    
     @Query("SELECT COALESCE(MAX(c.instanceId), -1) + 1 FROM CycleInstance c WHERE c.symbol = :symbol AND c.isSimulation = :isSimulation")
     Integer findNextInstanceId(@Param("symbol") String symbol, @Param("isSimulation") Boolean isSimulation);
     
@@ -30,4 +33,8 @@ public interface CycleInstanceRepository extends JpaRepository<CycleInstance, Lo
     
     @Query("SELECT SUM(c.baseQty) FROM CycleInstance c WHERE c.symbol = :symbol AND c.isOpen = true AND c.isSimulation = :isSimulation")
     BigDecimal sumBaseQtyBySymbolAndIsOpen(@Param("symbol") String symbol, @Param("isSimulation") Boolean isSimulation);
+    
+    @Modifying
+    @Query("DELETE FROM CycleInstance c WHERE c.isSimulation = :isSimulation")
+    void deleteByIsSimulation(@Param("isSimulation") Boolean isSimulation);
 }

@@ -18,12 +18,18 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import Dashboard from './views/Dashboard.vue'
 import SimulationConsole from './views/SimulationConsole.vue'
 import History from './views/History.vue'
+import { useCompoundStore } from './stores/compound'
 
+const store = useCompoundStore()
 const currentView = ref('dashboard')
+
+onMounted(async () => {
+  await store.loadModeFromServer()
+})
 </script>
 
 <style>

@@ -59,6 +59,10 @@ const props = defineProps({
   instanceId: {
     type: Number,
     required: true
+  },
+  isSimulation: {
+    type: Boolean,
+    default: true
   }
 })
 
@@ -101,7 +105,9 @@ function getEventTagType(event) {
     'SELL_STEP': 'warning',
     'SELL_CYCLE': 'danger',
     'BUY_REBUY': 'info',
-    'WAIT_REENTRY': 'warning'
+    'WAIT_REENTRY': 'warning',
+    'TAKE_PROFIT': 'danger',
+    'REBUY_COMPOUND': 'success'
   }
   return typeMap[event] || 'info'
 }
@@ -113,7 +119,9 @@ function getEventLabel(event) {
     'SELL_STEP': '分步卖出',
     'SELL_CYCLE': '周期卖出',
     'BUY_REBUY': '买入补仓',
-    'WAIT_REENTRY': '等待重新入场'
+    'WAIT_REENTRY': '等待重新入场',
+    'TAKE_PROFIT': '止盈平仓',
+    'REBUY_COMPOUND': '复利开仓'
   }
   return labelMap[event] || event
 }
@@ -121,35 +129,46 @@ function getEventLabel(event) {
 async function fetchEvents() {
   loading.value = true
   try {
-    const allEvents = await compoundApi.getEventHistory(props.symbol, true, 500)
-    events.value = allEvents
+    const allEvents = await compoundApi.getEventHistory(props.symbol, props.isSimulation, 500)
+    
+    const filtered = allEvents
       .filter(e => e.instanceId === props.instanceId)
-      .map((e, idx, arr) => {
-        const prevEvent = idx > 0 ? arr[idx - 1] : null
-        let buyPxRef = null
-        let costRef = null
-        let pnl = null
-        let pnlPct = null
-        
-        if (e.event === 'SELL_STEP' || e.event === 'SELL_CYCLE') {
-          if (prevEvent && (prevEvent.event === 'BUY_REBUY' || prevEvent.event === 'BUY_OPEN')) {
-            buyPxRef = prevEvent.price
-            costRef = Number(prevEvent.quoteAmount)
-            const sellQuote = Number(e.quoteAmount)
-            pnl = sellQuote - costRef
-            pnlPct = costRef > 0 ? ((pnl / costRef) * 100).toFixed(2) : '0.00'
-          }
-        }
-        
-        return {
-          ...e,
-          buyPxRef: buyPxRef,
-          costRef: costRef,
-          pnl: pnl,
-          pnlPct: pnlPct
-        }
-      })
       .reverse()
+    
+    const mapped = filtered.map((e, idx, arr) => {
+      let buyPxRef = null
+      let costRef = null
+      let pnl = null
+      let pnlPct = null
+      
+      if (e.event === 'BUY_OPEN' || e.event === 'BUY_REBUY' || e.event === 'REBUY_COMPOUND') {
+        for (let j = idx + 1; j < arr.length; j++) {
+          const nextEvent = arr[j]
+          if (nextEvent.event === 'DEPOSIT_ALLOC') continue
+          if (nextEvent.event === 'TAKE_PROFIT' || nextEvent.event === 'SELL_STEP' || nextEvent.event === 'SELL_CYCLE') {
+            buyPxRef = e.price
+            costRef = Number(e.quoteAmount)
+            const sellQuote = Number(nextEvent.quoteAmount)
+            const buyFee = costRef * 0.001
+            const sellFee = sellQuote * 0.001
+            pnl = sellQuote - costRef - buyFee - sellFee
+            pnlPct = costRef > 0 ? ((pnl / costRef) * 100).toFixed(2) : '0.00'
+            break
+          }
+          break
+        }
+      }
+      
+      return {
+        ...e,
+        buyPxRef: buyPxRef,
+        costRef: costRef,
+        pnl: pnl,
+        pnlPct: pnlPct
+      }
+    }).reverse()
+    
+    events.value = mapped
   } catch (e) {
     console.error('Failed to fetch events:', e)
   } finally {
@@ -157,13 +176,9 @@ async function fetchEvents() {
   }
 }
 
-watch(() => [props.symbol, props.instanceId], () => {
+watch(() => [props.symbol, props.instanceId, props.isSimulation], () => {
   fetchEvents()
 }, { immediate: true })
-
-onMounted(() => {
-  fetchEvents()
-})
 </script>
 
 <style scoped>
