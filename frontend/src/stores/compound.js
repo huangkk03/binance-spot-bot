@@ -5,6 +5,48 @@ import { compoundApi } from '../api/compound'
 export const useCompoundStore = defineStore('compound', () => {
   const isSimulation = ref(true)
 
+  let ws = null
+  let wsReconnectTimer = null
+
+  function initWebSocket() {
+    if (ws) return
+    
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const wsUrl = `${protocol}//${window.location.host}/ws/frontend`
+    
+    ws = new WebSocket(wsUrl)
+    
+    ws.onopen = () => {
+      console.log('Frontend WebSocket connected')
+      if (wsReconnectTimer) {
+        clearTimeout(wsReconnectTimer)
+        wsReconnectTimer = null
+      }
+    }
+    
+    ws.onmessage = (event) => {
+      try {
+        const msg = JSON.parse(event.data)
+        if (msg.type === 'PRICE_UPDATE') {
+          prices.value[msg.data.symbol] = msg.data.price
+        }
+      } catch (e) {
+        console.error('Failed to parse WS message', e)
+      }
+    }
+    
+    ws.onclose = () => {
+      console.log('Frontend WebSocket disconnected, reconnecting...')
+      ws = null
+      wsReconnectTimer = setTimeout(initWebSocket, 5000)
+    }
+    
+    ws.onerror = (error) => {
+      console.error('Frontend WebSocket error', error)
+      ws.close()
+    }
+  }
+
   async function loadModeFromServer() {
     try {
       const result = await compoundApi.getCurrentMode()
@@ -323,6 +365,7 @@ export const useCompoundStore = defineStore('compound', () => {
     activateApiAccount,
     fetchApiAccountBalances,
     testApiAccount,
-    loadModeFromServer
+    loadModeFromServer,
+    initWebSocket
   }
 })

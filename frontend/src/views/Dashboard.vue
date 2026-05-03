@@ -34,7 +34,12 @@
     </div>
 
     <div class="prices-section">
-      <h2>实时行情</h2>
+      <div class="section-header">
+        <h2>实时行情</h2>
+        <el-button type="primary" @click="generateAiReport" :loading="isGeneratingReport">
+          生成 BTC AI 分析报告 (PDF)
+        </el-button>
+      </div>
       <div class="prices-grid">
         <div v-for="sym in symbols" :key="sym" class="price-card" @click="openKlineDetail(sym)">
           <div class="price-symbol">{{ sym }}</div>
@@ -141,6 +146,7 @@
 
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue'
+import { ElMessage } from 'element-plus'
 import { useCompoundStore } from '../stores/compound'
 import KlineChart from '../components/KlineChart.vue'
 import InstanceDetail from '../components/InstanceDetail.vue'
@@ -153,6 +159,7 @@ const showInstanceDialog = ref(false)
 const selectedSymbol = ref('')
 const selectedInstanceSymbol = ref('')
 const selectedInstanceId = ref(0)
+const isGeneratingReport = ref(false)
 const isSimMode = computed({
   get: () => store.isSimulation,
   set: (val) => store.setSimulationMode(val)
@@ -269,7 +276,35 @@ function handleRowClick(row) {
   showInstanceDialog.value = true
 }
 
+async function generateAiReport() {
+  isGeneratingReport.value = true
+  try {
+    ElMessage.info('正在生成 AI 报告，请稍候...')
+    const response = await fetch('/api/v1/reports/btc-prediction/pdf')
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+    const blob = await response.blob()
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.style.display = 'none'
+    a.href = url
+    a.download = `BTC_AI_Report_${new Date().getTime()}.pdf`
+    document.body.appendChild(a)
+    a.click()
+    window.URL.revokeObjectURL(url)
+    document.body.removeChild(a)
+    ElMessage.success('报告生成成功并已开始下载')
+  } catch (error) {
+    console.error('Failed to generate report:', error)
+    ElMessage.error('生成报告失败: ' + error.message)
+  } finally {
+    isGeneratingReport.value = false
+  }
+}
+
 onMounted(async () => {
+  store.initWebSocket()
   await store.fetchInstances()
   await store.fetchPrices()
   await store.fetchAccounts()
@@ -278,7 +313,6 @@ onMounted(async () => {
   await store.fetchAlerts()
   
   setInterval(async () => {
-    await store.fetchPrices()
     await store.fetchKLines(symbols)
     await store.fetchAlerts()
   }, 5000)
@@ -330,9 +364,16 @@ onMounted(async () => {
   margin-bottom: 2rem;
 }
 
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
 h2 {
   color: #e0e6ed;
-  margin-bottom: 1rem;
+  margin-bottom: 0;
   font-size: 1.25rem;
 }
 

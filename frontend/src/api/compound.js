@@ -126,6 +126,16 @@ export const compoundApi = {
     return response.data
   },
 
+  async testAiConfig(url, key, model) {
+    const response = await api.post('/api-config/test-ai', { url, key, model })
+    return response.data
+  },
+
+  async testNotification(title, content) {
+    const response = await api.post('/api-config/test-notification', { title, content })
+    return response.data
+  },
+
   async getAllApiAccounts() {
     const response = await api.get('/api-accounts')
     return response.data

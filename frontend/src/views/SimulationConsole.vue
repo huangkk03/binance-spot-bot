@@ -129,6 +129,62 @@
         </div>
 
         <div class="panel config-panel">
+          <h3>AI 模型配置</h3>
+          <div class="form-group">
+            <label>API URL</label>
+            <input type="text" v-model="aiConfigForm.url" placeholder="例如: https://api.openai.com/v1/chat/completions" />
+          </div>
+          <div class="form-group">
+            <label>API Key</label>
+            <input type="password" v-model="aiConfigForm.key" placeholder="输入 AI API Key" />
+          </div>
+          <div class="form-group">
+            <label>模型名称</label>
+            <input type="text" v-model="aiConfigForm.model" placeholder="例如: gpt-3.5-turbo" />
+          </div>
+          <div class="btn-group">
+            <button @click="handleSaveAiConfig" class="btn-save">保存 AI 配置</button>
+            <button @click="handleTestAiConfig" class="btn-test" :disabled="testingAi">
+              {{ testingAi ? '测试中...' : '测试连接' }}
+            </button>
+          </div>
+        </div>
+
+        <div class="panel config-panel">
+          <h3>通知配置（微信/邮件）</h3>
+          <div class="form-group">
+            <label>微信 Webhook URL</label>
+            <input type="text" v-model="notifyConfigForm.wechatWebhookUrl" placeholder="例如: https://sctapi.ftqq.com/xxx.send" />
+          </div>
+          <div class="form-group">
+            <label>邮件接收人</label>
+            <input type="text" v-model="notifyConfigForm.emailTo" placeholder="例如: user@example.com" />
+          </div>
+          <div class="form-group">
+            <label>SMTP Host</label>
+            <input type="text" v-model="notifyConfigForm.smtpHost" placeholder="例如: smtp.qq.com" />
+          </div>
+          <div class="form-group">
+            <label>SMTP Port</label>
+            <input type="text" v-model="notifyConfigForm.smtpPort" placeholder="例如: 465 或 587" />
+          </div>
+          <div class="form-group">
+            <label>SMTP 用户名</label>
+            <input type="text" v-model="notifyConfigForm.smtpUsername" placeholder="邮箱账号" />
+          </div>
+          <div class="form-group">
+            <label>SMTP 密码/授权码</label>
+            <input type="password" v-model="notifyConfigForm.smtpPassword" placeholder="邮箱授权码" />
+          </div>
+          <div class="btn-group">
+            <button @click="handleSaveNotifyConfig" class="btn-save">保存通知配置</button>
+            <button @click="handleTestNotifyConfig" class="btn-test" :disabled="testingNotify">
+              {{ testingNotify ? '测试中...' : '测试通知' }}
+            </button>
+          </div>
+        </div>
+
+        <div class="panel config-panel">
           <h3>真实交易策略参数</h3>
           <div class="form-group">
             <label>TAKE_PROFIT_PCT (固定止盈点)</label>
@@ -244,7 +300,22 @@ const accountForm = ref({
   proxyUrl: '',
   testnet: true
 })
+const aiConfigForm = ref({
+  url: '',
+  key: '',
+  model: ''
+})
+const notifyConfigForm = ref({
+  wechatWebhookUrl: '',
+  emailTo: '',
+  smtpHost: '',
+  smtpPort: '465',
+  smtpUsername: '',
+  smtpPassword: ''
+})
 const testing = ref(false)
+const testingAi = ref(false)
+const testingNotify = ref(false)
 const testResult = ref(null)
 const balances = ref([])
 const loadingBalances = ref(false)
@@ -369,6 +440,116 @@ async function handleSaveRealConfig() {
     saveLog('真实配置保存', JSON.stringify(localRealConfig.value))
   } catch (e) {
     ElMessage.error('配置保存失败: ' + e.message)
+  }
+}
+
+async function loadAiConfig() {
+  try {
+    const urlRes = await compoundApi.getApiConfig('AI_API_URL')
+    const keyRes = await compoundApi.getApiConfig('AI_API_KEY')
+    const modelRes = await compoundApi.getApiConfig('AI_API_MODEL')
+    
+    aiConfigForm.value.url = urlRes.hasValue ? urlRes.value : ''
+    aiConfigForm.value.key = keyRes.hasValue ? keyRes.value : ''
+    aiConfigForm.value.model = modelRes.hasValue ? modelRes.value : ''
+  } catch (e) {
+    console.error('Failed to load AI config:', e)
+  }
+}
+
+async function loadNotifyConfig() {
+  try {
+    const wechatRes = await compoundApi.getApiConfig('WECHAT_WEBHOOK_URL')
+    const emailToRes = await compoundApi.getApiConfig('EMAIL_TO')
+    const smtpHostRes = await compoundApi.getApiConfig('EMAIL_SMTP_HOST')
+    const smtpPortRes = await compoundApi.getApiConfig('EMAIL_SMTP_PORT')
+    const smtpUsernameRes = await compoundApi.getApiConfig('EMAIL_SMTP_USERNAME')
+    const smtpPasswordRes = await compoundApi.getApiConfig('EMAIL_SMTP_PASSWORD')
+
+    notifyConfigForm.value.wechatWebhookUrl = wechatRes.hasValue ? wechatRes.value : ''
+    notifyConfigForm.value.emailTo = emailToRes.hasValue ? emailToRes.value : ''
+    notifyConfigForm.value.smtpHost = smtpHostRes.hasValue ? smtpHostRes.value : ''
+    notifyConfigForm.value.smtpPort = smtpPortRes.hasValue ? smtpPortRes.value : '465'
+    notifyConfigForm.value.smtpUsername = smtpUsernameRes.hasValue ? smtpUsernameRes.value : ''
+    notifyConfigForm.value.smtpPassword = smtpPasswordRes.hasValue ? smtpPasswordRes.value : ''
+  } catch (e) {
+    console.error('Failed to load notify config:', e)
+  }
+}
+
+async function handleSaveAiConfig() {
+  try {
+    await compoundApi.saveApiConfig('AI_API_URL', aiConfigForm.value.url)
+    await compoundApi.saveApiConfig('AI_API_KEY', aiConfigForm.value.key)
+    await compoundApi.saveApiConfig('AI_API_MODEL', aiConfigForm.value.model)
+    ElMessage.success('AI 配置已保存')
+    saveLog('修改配置', '保存 AI 配置成功')
+  } catch (e) {
+    ElMessage.error('保存 AI 配置失败: ' + e.message)
+  }
+}
+
+async function handleTestAiConfig() {
+  if (!aiConfigForm.value.key) {
+    ElMessage.warning('请输入 AI API Key')
+    return
+  }
+  
+  testingAi.value = true
+  try {
+    const result = await compoundApi.testAiConfig(
+      aiConfigForm.value.url,
+      aiConfigForm.value.key,
+      aiConfigForm.value.model
+    )
+    
+    if (result.success) {
+      ElMessage.success(result.message || 'AI 接口连接成功')
+      saveLog('AI测试', 'AI 接口连接成功')
+    } else {
+      ElMessage.error(result.error || 'AI 接口连接失败')
+      saveLog('AI测试', 'AI 接口连接失败: ' + result.error)
+    }
+  } catch (e) {
+    ElMessage.error('测试异常: ' + e.message)
+  } finally {
+    testingAi.value = false
+  }
+}
+
+async function handleSaveNotifyConfig() {
+  try {
+    await compoundApi.saveApiConfig('WECHAT_WEBHOOK_URL', notifyConfigForm.value.wechatWebhookUrl)
+    await compoundApi.saveApiConfig('EMAIL_TO', notifyConfigForm.value.emailTo)
+    await compoundApi.saveApiConfig('EMAIL_SMTP_HOST', notifyConfigForm.value.smtpHost)
+    await compoundApi.saveApiConfig('EMAIL_SMTP_PORT', notifyConfigForm.value.smtpPort)
+    await compoundApi.saveApiConfig('EMAIL_SMTP_USERNAME', notifyConfigForm.value.smtpUsername)
+    await compoundApi.saveApiConfig('EMAIL_SMTP_PASSWORD', notifyConfigForm.value.smtpPassword)
+    ElMessage.success('通知配置已保存')
+    saveLog('通知配置', '保存通知配置成功')
+  } catch (e) {
+    ElMessage.error('保存通知配置失败: ' + e.message)
+  }
+}
+
+async function handleTestNotifyConfig() {
+  testingNotify.value = true
+  try {
+    const result = await compoundApi.testNotification(
+      '交易通知测试',
+      '这是一条测试通知，用于验证微信和邮件配置是否可用。'
+    )
+    if (result.success) {
+      ElMessage.success(result.message || '测试通知已发送')
+      saveLog('通知测试', '测试通知已发送')
+    } else {
+      ElMessage.error(result.error || '测试通知失败')
+      saveLog('通知测试', '测试通知失败: ' + (result.error || '未知错误'))
+    }
+  } catch (e) {
+    ElMessage.error('测试通知失败: ' + e.message)
+  } finally {
+    testingNotify.value = false
   }
 }
 
@@ -571,6 +752,8 @@ onMounted(async () => {
   localConfig.value.QUOTE_RESERVE = cfg.QUOTE_RESERVE || '10'
   localConfig.value.MAX_ORDERS_PER_TICK = cfg.MAX_ORDERS_PER_TICK || '5'
   await loadApiAccounts()
+  await loadAiConfig()
+  await loadNotifyConfig()
   const realResult = await compoundApi.getConfig(false)
   const realCfg = {}
   for (const c of realResult) {

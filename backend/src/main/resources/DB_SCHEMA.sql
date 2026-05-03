@@ -154,6 +154,7 @@ CREATE TABLE strategy_config (
 -- Insert default config values
 INSERT INTO strategy_config (config_key, config_value, is_simulation) VALUES
     ('TAKE_PROFIT_PCT', '0.03', 1),
+    ('STOP_LOSS_PCT', '0.10', 1),
     ('BASE_QUOTE_AMOUNT', '0', 1),
     ('MAX_ORDERS_PER_TICK', '5', 1),
     ('QUOTE_RESERVE', '10', 1);
@@ -164,7 +165,7 @@ INSERT INTO strategy_config (config_key, config_value, is_simulation) VALUES
 CREATE TABLE IF NOT EXISTS price_alerts (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     symbol VARCHAR(20) NOT NULL COMMENT 'Trading pair, e.g. BTCUSDT',
-    interval VARCHAR(10) NOT NULL COMMENT 'Kline interval, e.g. 1h, 4h',
+    `interval` VARCHAR(10) NOT NULL COMMENT 'Kline interval, e.g. 1h, 4h',
     alert_type VARCHAR(20) NOT NULL COMMENT 'TD_BUY or TD_SELL',
     td_count INT NOT NULL DEFAULT 0 COMMENT 'Current TD count',
     current_price DECIMAL(32, 16) NOT NULL COMMENT 'Current price when checked',
@@ -173,7 +174,7 @@ CREATE TABLE IF NOT EXISTS price_alerts (
     message VARCHAR(500) DEFAULT '' COMMENT 'Alert message',
     created_at_utc DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     
-    INDEX idx_symbol_interval_alert (symbol, interval, alert_type),
+    INDEX idx_symbol_interval_alert (symbol, `interval`, alert_type),
     INDEX idx_created_at (created_at_utc)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

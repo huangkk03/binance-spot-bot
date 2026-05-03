@@ -6,6 +6,7 @@ import com.binance.compound.entity.StrategyConfig;
 import com.binance.compound.repository.*;
 import com.binance.compound.service.PriceService;
 import com.binance.compound.service.SimulationEngine;
+import com.binance.compound.service.NotificationService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -40,6 +41,8 @@ public class StrategySimulatorTest {
     private StrategyConfigRepository strategyConfigRepository;
     @Mock
     private PriceService priceService;
+    @Mock
+    private com.binance.compound.service.NotificationService notificationService;
     
     private SimulationEngine simulationEngine;
     
@@ -56,7 +59,8 @@ public class StrategySimulatorTest {
                 instanceEventRepository,
                 cycleOpenRecordRepository,
                 strategyConfigRepository,
-                priceService
+                priceService,
+                notificationService
         );
     }
     

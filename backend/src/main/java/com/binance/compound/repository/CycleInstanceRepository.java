@@ -24,6 +24,7 @@ public interface CycleInstanceRepository extends JpaRepository<CycleInstance, Lo
     List<CycleInstance> findByIsSimulationOrderByIdDesc(Boolean isSimulation, Pageable pageable);
     
     List<CycleInstance> findBySymbolInAndIsSimulationAndIsOpenTrue(List<String> symbols, Boolean isSimulation);
+    List<CycleInstance> findBySymbolInAndIsSimulationAndIsOpenFalse(List<String> symbols, Boolean isSimulation);
     
     @Query("SELECT COALESCE(MAX(c.instanceId), -1) + 1 FROM CycleInstance c WHERE c.symbol = :symbol AND c.isSimulation = :isSimulation")
     Integer findNextInstanceId(@Param("symbol") String symbol, @Param("isSimulation") Boolean isSimulation);

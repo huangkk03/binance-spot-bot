@@ -36,17 +36,33 @@ public class BinanceWebSocketClient extends TextWebSocketHandler {
     private WebSocketSession session;
     private final Set<String> subscribedSymbols = new CopyOnWriteArraySet<>();
     private final Map<String, BigDecimal> currentPrices = new ConcurrentHashMap<>();
+    private volatile boolean isConnecting = false;
     
     private static final String WS_URL = "wss://stream.binance.com:9443/ws";
     
-    public void connect() {
+    public synchronized void connect() {
+        if (isConnecting || (session != null && session.isOpen())) return;
+        isConnecting = true;
         try {
             log.info("Connecting to Binance WebSocket: {}", WS_URL);
             this.session = webSocketClient.doHandshake(this, WS_URL).get();
             log.info("WebSocket connected");
         } catch (Exception e) {
             log.error("Failed to connect to WebSocket: {}", e.getMessage());
+            scheduleReconnect();
+        } finally {
+            isConnecting = false;
         }
+    }
+    
+    private void scheduleReconnect() {
+        log.info("Scheduling WebSocket reconnect in 5 seconds...");
+        new java.util.Timer().schedule(new java.util.TimerTask() {
+            @Override
+            public void run() {
+                connect();
+            }
+        }, 5000);
     }
     
     public void disconnect() {
@@ -120,6 +136,7 @@ public class BinanceWebSocketClient extends TextWebSocketHandler {
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
         log.info("WebSocket connection closed: {}", status);
+        scheduleReconnect();
     }
     
     public BigDecimal getPrice(String symbol) {

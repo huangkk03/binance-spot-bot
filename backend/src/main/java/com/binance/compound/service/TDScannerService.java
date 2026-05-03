@@ -59,27 +59,29 @@ public class TDScannerService {
         
         BigDecimal currentPrice = klines.get(klines.size() - 1).close;
         
-        if (tdResult.buyCount >= 9) {
-            handleAlert(symbol, interval, "TD_BUY", tdResult.buyCount, currentPrice, tdResult.buyCount, existingBuy);
+        // sellSetupCount means price is rising -> leading to a Sell Setup
+        // buySetupCount means price is dropping -> leading to a Buy Setup
+        if (tdResult.sellSetupCount >= 9) {
+            handleAlert(symbol, interval, "TD_SELL", tdResult.sellSetupCount, currentPrice, tdResult.sellSetupCount, existingSell, tdResult.isPerfectSell);
         }
         
-        if (tdResult.sellCount >= 9) {
-            handleAlert(symbol, interval, "TD_SELL", tdResult.sellCount, currentPrice, tdResult.sellCount, existingSell);
+        if (tdResult.buySetupCount >= 9) {
+            handleAlert(symbol, interval, "TD_BUY", tdResult.buySetupCount, currentPrice, tdResult.buySetupCount, existingBuy, tdResult.isPerfectBuy);
         }
         
-        if (tdResult.buyCount < 9 && existingBuy != null) {
+        if (tdResult.buySetupCount < 9 && existingBuy != null) {
             existingBuy.setTriggered(false);
             priceAlertRepository.save(existingBuy);
         }
         
-        if (tdResult.sellCount < 9 && existingSell != null) {
+        if (tdResult.sellSetupCount < 9 && existingSell != null) {
             existingSell.setTriggered(false);
             priceAlertRepository.save(existingSell);
         }
     }
     
     private void handleAlert(String symbol, String interval, String alertType, int tdCount, 
-            BigDecimal currentPrice, int count, PriceAlert existing) {
+            BigDecimal currentPrice, int count, PriceAlert existing, boolean isPerfect) {
         
         boolean isNew = existing == null;
         PriceAlert alert;
@@ -93,56 +95,81 @@ public class TDScannerService {
                     .currentPrice(currentPrice)
                     .triggerPrice(currentPrice)
                     .triggered(false)
-                    .message(buildMessage(symbol, interval, alertType, tdCount, currentPrice))
+                    .message(buildMessage(symbol, interval, alertType, tdCount, currentPrice, isPerfect))
                     .build();
             priceAlertRepository.save(alert);
         } else {
             alert = existing;
             alert.setTdCount(tdCount);
             alert.setCurrentPrice(currentPrice);
-            alert.setMessage(buildMessage(symbol, interval, alertType, tdCount, currentPrice));
+            alert.setMessage(buildMessage(symbol, interval, alertType, tdCount, currentPrice, isPerfect));
             
-            boolean shouldTrigger = (alertType.equals("TD_BUY") && tdCount == 9) ||
-                    (alertType.equals("TD_SELL") && tdCount == 9) ||
+            boolean shouldTrigger = (alertType.equals("TD_BUY") && tdCount == 9 && isPerfect) ||
+                    (alertType.equals("TD_SELL") && tdCount == 9 && isPerfect) ||
                     (alertType.equals("TD_BUY") && tdCount >= 13) ||
                     (alertType.equals("TD_SELL") && tdCount >= 13);
             
             if (shouldTrigger && !alert.getTriggered()) {
                 alert.setTriggered(true);
                 alert.setTriggerPrice(currentPrice);
-                log.warn("TD ALERT TRIGGERED: {} {} {} count={} price={}", symbol, interval, alertType, tdCount, currentPrice);
+                log.warn("TD ALERT TRIGGERED: {} {} {} count={} perfect={} price={}", symbol, interval, alertType, tdCount, isPerfect, currentPrice);
             }
             
             priceAlertRepository.save(alert);
         }
     }
     
-    private String buildMessage(String symbol, String interval, String alertType, int tdCount, BigDecimal price) {
+    private String buildMessage(String symbol, String interval, String alertType, int tdCount, BigDecimal price, boolean isPerfect) {
         String direction = alertType.equals("TD_BUY") ? "买入" : "卖出";
-        return String.format("%s %s TD%s信号 (count=%d) 当前价格: %s", symbol, interval, direction, tdCount, price);
+        String perfectStr = isPerfect && tdCount == 9 ? " (完美)" : "";
+        return String.format("%s %s TD%s信号%s (count=%d) 当前价格: %s", symbol, interval, direction, perfectStr, tdCount, price);
     }
     
     TDResult calculateTDCount(List<KlineBar> klines) {
-        int buyCount = 0;
-        int sellCount = 0;
+        int buySetupCount = 0;
+        int sellSetupCount = 0;
+        boolean isPerfectBuy = false;
+        boolean isPerfectSell = false;
         
-        for (int i = 9; i < klines.size(); i++) {
+        for (int i = 4; i < klines.size(); i++) {
             BigDecimal close = klines.get(i).close;
             BigDecimal closeFourAgo = klines.get(i - 4).close;
             
             if (close.compareTo(closeFourAgo) > 0) {
-                sellCount = 0;
-                buyCount++;
+                buySetupCount = 0;
+                sellSetupCount++;
             } else if (close.compareTo(closeFourAgo) < 0) {
-                buyCount = 0;
-                sellCount++;
+                sellSetupCount = 0;
+                buySetupCount++;
             } else {
-                buyCount = 0;
-                sellCount = 0;
+                buySetupCount = 0;
+                sellSetupCount = 0;
+            }
+            
+            if (sellSetupCount == 9 && i >= 8) {
+                BigDecimal high8 = klines.get(i - 1).high;
+                BigDecimal high9 = klines.get(i).high;
+                BigDecimal high6 = klines.get(i - 3).high;
+                BigDecimal high7 = klines.get(i - 2).high;
+                if (high8.compareTo(high6) > 0 && high8.compareTo(high7) > 0 ||
+                    high9.compareTo(high6) > 0 && high9.compareTo(high7) > 0) {
+                    isPerfectSell = true;
+                }
+            }
+            
+            if (buySetupCount == 9 && i >= 8) {
+                BigDecimal low8 = klines.get(i - 1).low;
+                BigDecimal low9 = klines.get(i).low;
+                BigDecimal low6 = klines.get(i - 3).low;
+                BigDecimal low7 = klines.get(i - 2).low;
+                if (low8.compareTo(low6) < 0 && low8.compareTo(low7) < 0 ||
+                    low9.compareTo(low6) < 0 && low9.compareTo(low7) < 0) {
+                    isPerfectBuy = true;
+                }
             }
         }
         
-        return new TDResult(buyCount, sellCount);
+        return new TDResult(buySetupCount, sellSetupCount, isPerfectBuy, isPerfectSell);
     }
     
     private List<KlineBar> fetchKlines(String symbol, String interval, int limit) {
@@ -205,12 +232,16 @@ public class TDScannerService {
     
     @lombok.Data
     private static class TDResult {
-        private int buyCount;
-        private int sellCount;
+        private int buySetupCount;
+        private int sellSetupCount;
+        private boolean isPerfectBuy;
+        private boolean isPerfectSell;
         
-        TDResult(int buyCount, int sellCount) {
-            this.buyCount = buyCount;
-            this.sellCount = sellCount;
+        TDResult(int buySetupCount, int sellSetupCount, boolean isPerfectBuy, boolean isPerfectSell) {
+            this.buySetupCount = buySetupCount;
+            this.sellSetupCount = sellSetupCount;
+            this.isPerfectBuy = isPerfectBuy;
+            this.isPerfectSell = isPerfectSell;
         }
     }
 }

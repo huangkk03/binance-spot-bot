@@ -4,6 +4,7 @@ import com.binance.compound.dto.ApiAccountDto;
 import com.binance.compound.entity.ApiAccount;
 import com.binance.compound.repository.ApiAccountRepository;
 import com.binance.compound.service.BinanceApiService;
+import com.binance.compound.util.EncryptionUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.transaction.annotation.Transactional;
@@ -47,7 +48,7 @@ public class ApiAccountController {
         ApiAccount account = ApiAccount.builder()
                 .accountName(dto.getAccountName())
                 .apiKey(dto.getApiKey())
-                .apiSecret(dto.getApiSecret())
+                .apiSecret(EncryptionUtil.encrypt(dto.getApiSecret()))
                 .useProxy(dto.getUseProxy() != null ? dto.getUseProxy() : false)
                 .proxyUrl(dto.getProxyUrl() != null ? dto.getProxyUrl() : "")
                 .testnet(dto.getTestnet() != null ? dto.getTestnet() : true)
@@ -67,11 +68,11 @@ public class ApiAccountController {
         if (dto.getAccountName() != null) {
             account.setAccountName(dto.getAccountName());
         }
-        if (dto.getApiKey() != null && !dto.getApiKey().isEmpty() && !dto.getApiKey().startsWith("******")) {
+        if (dto.getApiKey() != null && !dto.getApiKey().isEmpty() && !dto.getApiKey().contains("****")) {
             account.setApiKey(dto.getApiKey());
         }
-        if (dto.getApiSecret() != null && !dto.getApiSecret().isEmpty() && !dto.getApiSecret().startsWith("******")) {
-            account.setApiSecret(dto.getApiSecret());
+        if (dto.getApiSecret() != null && !dto.getApiSecret().isEmpty() && !dto.getApiSecret().contains("****")) {
+            account.setApiSecret(EncryptionUtil.encrypt(dto.getApiSecret()));
         }
         if (dto.getUseProxy() != null) {
             account.setUseProxy(dto.getUseProxy());
@@ -128,7 +129,7 @@ public class ApiAccountController {
         
         return binanceApiService.getAccountBalances(
                 account.getApiKey(),
-                account.getApiSecret(),
+                EncryptionUtil.decrypt(account.getApiSecret()),
                 account.getTestnet(),
                 account.getUseProxy() ? account.getProxyUrl() : ""
         );
@@ -138,8 +139,10 @@ public class ApiAccountController {
         return ApiAccountDto.builder()
                 .id(account.getId())
                 .accountName(account.getAccountName())
+                .apiKey(account.getApiKey()) // Return real apiKey
+                .apiSecret("********") // Mask secret completely
                 .maskedApiKey(mask(account.getApiKey()))
-                .maskedApiSecret(mask(account.getApiSecret()))
+                .maskedApiSecret("********")
                 .useProxy(account.getUseProxy())
                 .proxyUrl(account.getProxyUrl())
                 .testnet(account.getTestnet())

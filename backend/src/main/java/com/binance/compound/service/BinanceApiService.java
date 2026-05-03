@@ -17,6 +17,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
 @Service
@@ -320,6 +321,89 @@ public class BinanceApiService {
         } catch (Exception e) {
             result.put("success", false);
             result.put("error", "获取价格异常: " + e.getMessage());
+        }
+        
+        return result;
+    }
+    
+    @jakarta.annotation.PostConstruct
+    public void init() {
+        // Will be updated when first real trade or manually triggered
+        // updateExchangeInfo(false, null);
+    }
+    
+    private final Map<String, Integer> stepSizeCache = new ConcurrentHashMap<>();
+    private final Map<String, Integer> pricePrecisionCache = new ConcurrentHashMap<>();
+    
+    public void updateExchangeInfo(boolean testnet, String proxyUrl) {
+        Map<String, Object> info = getExchangeInfo(testnet, proxyUrl);
+        if (Boolean.TRUE.equals(info.get("success"))) {
+            try {
+                var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                var root = mapper.readTree((String) info.get("data"));
+                var symbols = root.get("symbols");
+                if (symbols != null && symbols.isArray()) {
+                    for (var symNode : symbols) {
+                        String symbol = symNode.get("symbol").asText();
+                        var filters = symNode.get("filters");
+                        if (filters != null && filters.isArray()) {
+                            for (var filter : filters) {
+                                String filterType = filter.get("filterType").asText();
+                                if ("LOT_SIZE".equals(filterType)) {
+                                    String stepSize = filter.get("stepSize").asText();
+                                    int scale = Math.max(0, stepSize.indexOf('1') - stepSize.indexOf('.'));
+                                    if (stepSize.indexOf('.') == -1 || stepSize.startsWith("1")) scale = 0;
+                                    stepSizeCache.put(symbol, scale);
+                                } else if ("PRICE_FILTER".equals(filterType)) {
+                                    String tickSize = filter.get("tickSize").asText();
+                                    int scale = Math.max(0, tickSize.indexOf('1') - tickSize.indexOf('.'));
+                                    if (tickSize.indexOf('.') == -1 || tickSize.startsWith("1")) scale = 0;
+                                    pricePrecisionCache.put(symbol, scale);
+                                }
+                            }
+                        }
+                    }
+                }
+                log.info("Updated exchange info cache for {} symbols", stepSizeCache.size());
+            } catch (Exception e) {
+                log.error("Failed to parse exchange info", e);
+            }
+        }
+    }
+    
+    public int getStepSize(String symbol) {
+        return stepSizeCache.getOrDefault(symbol, 8);
+    }
+    
+    public int getPricePrecision(String symbol) {
+        return pricePrecisionCache.getOrDefault(symbol, 8);
+    }
+
+    public Map<String, Object> getExchangeInfo(boolean testnet, String proxyUrl) {
+        Map<String, Object> result = new HashMap<>();
+        String baseUrl = testnet ? "https://testnet.binance.vision" : "https://api.binance.com";
+        HttpClient client = createHttpClient(proxyUrl);
+        
+        try {
+            String url = baseUrl + "/api/v3/exchangeInfo";
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .GET()
+                    .timeout(Duration.ofSeconds(10))
+                    .build();
+            
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            
+            if (response.statusCode() == 200) {
+                result.put("success", true);
+                result.put("data", response.body());
+            } else {
+                result.put("success", false);
+                result.put("error", "获取交易规则失败: " + response.body());
+            }
+        } catch (Exception e) {
+            result.put("success", false);
+            result.put("error", "获取交易规则异常: " + e.getMessage());
         }
         
         return result;

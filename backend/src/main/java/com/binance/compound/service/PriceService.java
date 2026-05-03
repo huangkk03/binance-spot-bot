@@ -26,6 +26,7 @@ public class PriceService {
     
     private final HttpClient httpClient;
     private final BinanceWebSocketClient webSocketClient;
+    private final com.binance.compound.websocket.FrontendWebSocketHandler frontendWebSocketHandler;
     
     private final Map<String, BigDecimal> priceCache = new ConcurrentHashMap<>();
     private final Set<String> subscribedSymbols = ConcurrentHashMap.newKeySet();
@@ -79,6 +80,7 @@ public class PriceService {
     
     public void updatePrice(String symbol, BigDecimal price) {
         priceCache.put(symbol.toUpperCase(), price);
+        frontendWebSocketHandler.broadcast("PRICE_UPDATE", Map.of("symbol", symbol.toUpperCase(), "price", price));
     }
     
     public void subscribe(String symbol) {
