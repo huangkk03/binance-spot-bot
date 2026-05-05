@@ -40,16 +40,23 @@
         <div class="panel config-panel">
           <h3>策略参数</h3>
           <div class="form-group">
+            <label>选择配置对象</label>
+            <select v-model="selectedConfigSymbol" @change="handleConfigSymbolChange">
+              <option value="GLOBAL">全局默认 (Global)</option>
+              <option v-for="sym in availableSymbols" :key="sym" :value="sym">{{ sym }}</option>
+            </select>
+          </div>
+          <div class="form-group">
             <label>TAKE_PROFIT_PCT (固定止盈点)</label>
-            <input type="text" v-model="localConfig.TAKE_PROFIT_PCT" />
+            <input type="text" v-model="localConfig.TAKE_PROFIT_PCT" :placeholder="selectedConfigSymbol !== 'GLOBAL' ? '留空则使用全局默认' : ''" />
           </div>
           <div class="form-group">
             <label>QUOTE_RESERVE (预留金额)</label>
-            <input type="text" v-model="localConfig.QUOTE_RESERVE" />
+            <input type="text" v-model="localConfig.QUOTE_RESERVE" :placeholder="selectedConfigSymbol !== 'GLOBAL' ? '留空则使用全局默认' : ''" />
           </div>
           <div class="form-group">
             <label>MAX_ORDERS_PER_TICK (每轮最大订单)</label>
-            <input type="text" v-model="localConfig.MAX_ORDERS_PER_TICK" />
+            <input type="text" v-model="localConfig.MAX_ORDERS_PER_TICK" :placeholder="selectedConfigSymbol !== 'GLOBAL' ? '留空则使用全局默认' : ''" />
           </div>
           <button @click="handleSaveConfig" class="btn-save">保存配置</button>
         </div>
@@ -187,16 +194,23 @@
         <div class="panel config-panel">
           <h3>真实交易策略参数</h3>
           <div class="form-group">
+            <label>选择配置对象</label>
+            <select v-model="selectedRealConfigSymbol" @change="handleRealConfigSymbolChange">
+              <option value="GLOBAL">全局默认 (Global)</option>
+              <option v-for="sym in availableSymbols" :key="sym" :value="sym">{{ sym }}</option>
+            </select>
+          </div>
+          <div class="form-group">
             <label>TAKE_PROFIT_PCT (固定止盈点)</label>
-            <input type="text" v-model="localRealConfig.TAKE_PROFIT_PCT" />
+            <input type="text" v-model="localRealConfig.TAKE_PROFIT_PCT" :placeholder="selectedRealConfigSymbol !== 'GLOBAL' ? '留空则使用全局默认' : ''" />
           </div>
           <div class="form-group">
             <label>QUOTE_RESERVE (预留金额)</label>
-            <input type="text" v-model="localRealConfig.QUOTE_RESERVE" />
+            <input type="text" v-model="localRealConfig.QUOTE_RESERVE" :placeholder="selectedRealConfigSymbol !== 'GLOBAL' ? '留空则使用全局默认' : ''" />
           </div>
           <div class="form-group">
             <label>MAX_ORDERS_PER_TICK (每轮最大订单)</label>
-            <input type="text" v-model="localRealConfig.MAX_ORDERS_PER_TICK" />
+            <input type="text" v-model="localRealConfig.MAX_ORDERS_PER_TICK" :placeholder="selectedRealConfigSymbol !== 'GLOBAL' ? '留空则使用全局默认' : ''" />
           </div>
           <button @click="handleSaveRealConfig" class="btn-save">保存配置</button>
         </div>
@@ -277,6 +291,8 @@ const selectedSymbols = ref(['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'ADAUSDT', 'DOGEUS
 const depositAsset = ref('USDT')
 const depositAmount = ref(100)
 const localLogs = ref([])
+const selectedConfigSymbol = ref('GLOBAL')
+const selectedRealConfigSymbol = ref('GLOBAL')
 const localConfig = ref({
   TAKE_PROFIT_PCT: '0.03',
   QUOTE_RESERVE: '10',
@@ -287,6 +303,7 @@ const localRealConfig = ref({
   QUOTE_RESERVE: '10',
   MAX_ORDERS_PER_TICK: '5'
 })
+const fullRealConfig = ref({})
 const isSimMode = ref(store.isSimulation)
 
 const apiAccounts = ref([])
@@ -421,7 +438,9 @@ async function handleClearData() {
 
 async function handleSaveConfig() {
   try {
-    for (const [key, value] of Object.entries(localConfig.value)) {
+    const suffix = selectedConfigSymbol.value === 'GLOBAL' ? '' : `_${selectedConfigSymbol.value}`
+    for (const [baseKey, value] of Object.entries(localConfig.value)) {
+      const key = `${baseKey}${suffix}`
       await store.updateConfig(key, value)
     }
     ElMessage.success('配置已保存')
@@ -433,14 +452,32 @@ async function handleSaveConfig() {
 
 async function handleSaveRealConfig() {
   try {
-    for (const [key, value] of Object.entries(localRealConfig.value)) {
-      await store.updateConfig(key, value)
+    const suffix = selectedRealConfigSymbol.value === 'GLOBAL' ? '' : `_${selectedRealConfigSymbol.value}`
+    for (const [baseKey, value] of Object.entries(localRealConfig.value)) {
+      const key = `${baseKey}${suffix}`
+      await compoundApi.updateConfig(key, value, false)
+      fullRealConfig.value[key] = value
     }
     ElMessage.success('真实交易配置已保存')
     saveLog('真实配置保存', JSON.stringify(localRealConfig.value))
   } catch (e) {
     ElMessage.error('配置保存失败: ' + e.message)
   }
+}
+
+function handleConfigSymbolChange() {
+  const cfg = store.config
+  const suffix = selectedConfigSymbol.value === 'GLOBAL' ? '' : `_${selectedConfigSymbol.value}`
+  localConfig.value.TAKE_PROFIT_PCT = cfg[`TAKE_PROFIT_PCT${suffix}`] || (selectedConfigSymbol.value === 'GLOBAL' ? '0.03' : '')
+  localConfig.value.QUOTE_RESERVE = cfg[`QUOTE_RESERVE${suffix}`] || (selectedConfigSymbol.value === 'GLOBAL' ? '10' : '')
+  localConfig.value.MAX_ORDERS_PER_TICK = cfg[`MAX_ORDERS_PER_TICK${suffix}`] || (selectedConfigSymbol.value === 'GLOBAL' ? '5' : '')
+}
+
+function handleRealConfigSymbolChange() {
+  const suffix = selectedRealConfigSymbol.value === 'GLOBAL' ? '' : `_${selectedRealConfigSymbol.value}`
+  localRealConfig.value.TAKE_PROFIT_PCT = fullRealConfig.value[`TAKE_PROFIT_PCT${suffix}`] || (selectedRealConfigSymbol.value === 'GLOBAL' ? '0.03' : '')
+  localRealConfig.value.QUOTE_RESERVE = fullRealConfig.value[`QUOTE_RESERVE${suffix}`] || (selectedRealConfigSymbol.value === 'GLOBAL' ? '10' : '')
+  localRealConfig.value.MAX_ORDERS_PER_TICK = fullRealConfig.value[`MAX_ORDERS_PER_TICK${suffix}`] || (selectedRealConfigSymbol.value === 'GLOBAL' ? '5' : '')
 }
 
 async function loadAiConfig() {
@@ -560,15 +597,17 @@ async function handleModeChange(val) {
   loadLogs()
   if (!val) {
     await loadApiAccounts()
-    const cfg = store.config
-    localRealConfig.value.TAKE_PROFIT_PCT = cfg.TAKE_PROFIT_PCT || localRealConfig.value.TAKE_PROFIT_PCT
-    localRealConfig.value.QUOTE_RESERVE = cfg.QUOTE_RESERVE || localRealConfig.value.QUOTE_RESERVE
-    localRealConfig.value.MAX_ORDERS_PER_TICK = cfg.MAX_ORDERS_PER_TICK || localRealConfig.value.MAX_ORDERS_PER_TICK
+    const cfg = fullRealConfig.value
+    const suffix = selectedRealConfigSymbol.value === 'GLOBAL' ? '' : `_${selectedRealConfigSymbol.value}`
+    localRealConfig.value.TAKE_PROFIT_PCT = cfg[`TAKE_PROFIT_PCT${suffix}`] || (selectedRealConfigSymbol.value === 'GLOBAL' ? '0.03' : '')
+    localRealConfig.value.QUOTE_RESERVE = cfg[`QUOTE_RESERVE${suffix}`] || (selectedRealConfigSymbol.value === 'GLOBAL' ? '10' : '')
+    localRealConfig.value.MAX_ORDERS_PER_TICK = cfg[`MAX_ORDERS_PER_TICK${suffix}`] || (selectedRealConfigSymbol.value === 'GLOBAL' ? '5' : '')
   } else {
     const cfg = store.config
-    localConfig.value.TAKE_PROFIT_PCT = cfg.TAKE_PROFIT_PCT || localConfig.value.TAKE_PROFIT_PCT
-    localConfig.value.QUOTE_RESERVE = cfg.QUOTE_RESERVE || localConfig.value.QUOTE_RESERVE
-    localConfig.value.MAX_ORDERS_PER_TICK = cfg.MAX_ORDERS_PER_TICK || localConfig.value.MAX_ORDERS_PER_TICK
+    const suffix = selectedConfigSymbol.value === 'GLOBAL' ? '' : `_${selectedConfigSymbol.value}`
+    localConfig.value.TAKE_PROFIT_PCT = cfg[`TAKE_PROFIT_PCT${suffix}`] || (selectedConfigSymbol.value === 'GLOBAL' ? '0.03' : '')
+    localConfig.value.QUOTE_RESERVE = cfg[`QUOTE_RESERVE${suffix}`] || (selectedConfigSymbol.value === 'GLOBAL' ? '10' : '')
+    localConfig.value.MAX_ORDERS_PER_TICK = cfg[`MAX_ORDERS_PER_TICK${suffix}`] || (selectedConfigSymbol.value === 'GLOBAL' ? '5' : '')
   }
 }
 
@@ -759,6 +798,7 @@ onMounted(async () => {
   for (const c of realResult) {
     realCfg[c.configKey] = c.configValue
   }
+  fullRealConfig.value = realCfg
   localRealConfig.value.TAKE_PROFIT_PCT = realCfg.TAKE_PROFIT_PCT || '0.03'
   localRealConfig.value.QUOTE_RESERVE = realCfg.QUOTE_RESERVE || '10'
   localRealConfig.value.MAX_ORDERS_PER_TICK = realCfg.MAX_ORDERS_PER_TICK || '5'

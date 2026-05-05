@@ -130,8 +130,8 @@ public class RealTradingService {
             if (price == null) continue;
             
             if (inst.getIsOpen()) {
-                BigDecimal takeProfitPct = getTakeProfitPct();
-                BigDecimal stopLossPct = getStopLossPct();
+                BigDecimal takeProfitPct = getTakeProfitPct(inst.getSymbol());
+                BigDecimal stopLossPct = getStopLossPct(inst.getSymbol());
                 BigDecimal cycleStartPrice = inst.getCycleStartPrice();
                 BigDecimal takeProfitPrice = cycleStartPrice.multiply(BigDecimal.ONE.add(takeProfitPct));
                 BigDecimal stopLossPrice = cycleStartPrice.multiply(BigDecimal.ONE.subtract(stopLossPct));
@@ -171,7 +171,7 @@ public class RealTradingService {
         if (customQuoteAmount != null && customQuoteAmount.compareTo(BigDecimal.ZERO) > 0) {
             spendableQuote = customQuoteAmount.min(usdtBalance);
         } else {
-            BigDecimal reserve = getQuoteReserve();
+            BigDecimal reserve = getQuoteReserve("GLOBAL");
             spendableQuote = usdtBalance.subtract(reserve).max(BigDecimal.ZERO);
         }
         
@@ -186,7 +186,7 @@ public class RealTradingService {
             return result;
         }
         
-        int maxOrders = getMaxOrdersPerTick();
+        int maxOrders = getMaxOrdersPerTick("GLOBAL");
         int ordersPlaced = takeProfitCount + rebuyCount;
         
         for (String symbol : symbols) {
@@ -269,28 +269,66 @@ public class RealTradingService {
         return result;
     }
     
-    private BigDecimal getTakeProfitPct() {
-        return strategyConfigRepository.findByConfigKeyAndIsSimulation("TAKE_PROFIT_PCT", IS_SIMULATION)
-                .map(c -> new BigDecimal(c.getConfigValue()))
-                .orElse(defaultTakeProfitPct);
+    private BigDecimal parseBigDecimal(String val) {
+        if (val == null || val.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            return new BigDecimal(val.trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private Integer parseInteger(String val) {
+        if (val == null || val.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            return Integer.parseInt(val.trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private BigDecimal getTakeProfitPct(String symbol) {
+        return strategyConfigRepository.findByConfigKeyAndIsSimulation("TAKE_PROFIT_PCT_" + symbol, IS_SIMULATION)
+                .map(c -> parseBigDecimal(c.getConfigValue()))
+                .filter(Objects::nonNull)
+                .orElseGet(() -> strategyConfigRepository.findByConfigKeyAndIsSimulation("TAKE_PROFIT_PCT", IS_SIMULATION)
+                        .map(c -> parseBigDecimal(c.getConfigValue()))
+                        .filter(Objects::nonNull)
+                        .orElse(defaultTakeProfitPct));
     }
     
-    private BigDecimal getStopLossPct() {
-        return strategyConfigRepository.findByConfigKeyAndIsSimulation("STOP_LOSS_PCT", IS_SIMULATION)
-                .map(c -> new BigDecimal(c.getConfigValue()))
-                .orElse(defaultStopLossPct);
+    private BigDecimal getStopLossPct(String symbol) {
+        return strategyConfigRepository.findByConfigKeyAndIsSimulation("STOP_LOSS_PCT_" + symbol, IS_SIMULATION)
+                .map(c -> parseBigDecimal(c.getConfigValue()))
+                .filter(Objects::nonNull)
+                .orElseGet(() -> strategyConfigRepository.findByConfigKeyAndIsSimulation("STOP_LOSS_PCT", IS_SIMULATION)
+                        .map(c -> parseBigDecimal(c.getConfigValue()))
+                        .filter(Objects::nonNull)
+                        .orElse(defaultStopLossPct));
     }
     
-    private BigDecimal getQuoteReserve() {
-        return strategyConfigRepository.findByConfigKeyAndIsSimulation("QUOTE_RESERVE", IS_SIMULATION)
-                .map(c -> new BigDecimal(c.getConfigValue()))
-                .orElse(defaultQuoteReserve);
+    private BigDecimal getQuoteReserve(String symbol) {
+        return strategyConfigRepository.findByConfigKeyAndIsSimulation("QUOTE_RESERVE_" + symbol, IS_SIMULATION)
+                .map(c -> parseBigDecimal(c.getConfigValue()))
+                .filter(Objects::nonNull)
+                .orElseGet(() -> strategyConfigRepository.findByConfigKeyAndIsSimulation("QUOTE_RESERVE", IS_SIMULATION)
+                        .map(c -> parseBigDecimal(c.getConfigValue()))
+                        .filter(Objects::nonNull)
+                        .orElse(defaultQuoteReserve));
     }
     
-    private Integer getMaxOrdersPerTick() {
-        return strategyConfigRepository.findByConfigKeyAndIsSimulation("MAX_ORDERS_PER_TICK", IS_SIMULATION)
-                .map(c -> Integer.parseInt(c.getConfigValue()))
-                .orElse(defaultMaxOrdersPerTick);
+    private Integer getMaxOrdersPerTick(String symbol) {
+        return strategyConfigRepository.findByConfigKeyAndIsSimulation("MAX_ORDERS_PER_TICK_" + symbol, IS_SIMULATION)
+                .map(c -> parseInteger(c.getConfigValue()))
+                .filter(Objects::nonNull)
+                .orElseGet(() -> strategyConfigRepository.findByConfigKeyAndIsSimulation("MAX_ORDERS_PER_TICK", IS_SIMULATION)
+                        .map(c -> parseInteger(c.getConfigValue()))
+                        .filter(Objects::nonNull)
+                        .orElse(defaultMaxOrdersPerTick));
     }
     
     @Transactional
@@ -410,7 +448,7 @@ public class RealTradingService {
     private Map<String, Object> executeRebuyCompound(CycleInstance inst, BigDecimal price, ApiAccount activeAccount, BigDecimal currentUsdtBalance) {
         Map<String, Object> result = new HashMap<>();
         
-        BigDecimal reserve = getQuoteReserve();
+        BigDecimal reserve = getQuoteReserve(inst.getSymbol());
         BigDecimal spendableQuote = currentUsdtBalance.subtract(reserve).max(BigDecimal.ZERO);
         
         BigDecimal quoteToSpend = inst.getQuoteAmount().min(spendableQuote);

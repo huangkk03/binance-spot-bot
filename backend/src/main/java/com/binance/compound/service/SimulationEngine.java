@@ -118,7 +118,7 @@ public class SimulationEngine {
                     delta, chosenSymbol, nextInstanceId));
         }
         
-        int remainingOrders = getMaxOrdersPerTick(isSimulation);
+        int remainingOrders = getMaxOrdersPerTick("GLOBAL", isSimulation);
         
         for (String symbol : symbols) {
             if (remainingOrders <= 0) break;
@@ -127,7 +127,7 @@ public class SimulationEngine {
             if (price == null || price.compareTo(BigDecimal.ZERO) <= 0) continue;
             
             String quoteAsset = "USDT";
-            BigDecimal spendableQuote = getSpendableQuote(quoteAsset, isSimulation);
+            BigDecimal spendableQuote = getSpendableQuote(symbol, quoteAsset, isSimulation);
             
             List<CycleInstance> instances = cycleInstanceRepository
                     .findBySymbolAndIsSimulationOrderByInstanceIdAsc(symbol, isSimulation);
@@ -289,8 +289,8 @@ public class SimulationEngine {
     }
     
     private String tryTakeProfitOrRebuy(CycleInstance inst, BigDecimal price, BigDecimal spendableQuote, Boolean isSimulation) {
-        BigDecimal takeProfitPct = getTakeProfitPct(isSimulation);
-        BigDecimal stopLossPct = getStopLossPct(isSimulation);
+        BigDecimal takeProfitPct = getTakeProfitPct(inst.getSymbol(), isSimulation);
+        BigDecimal stopLossPct = getStopLossPct(inst.getSymbol(), isSimulation);
         BigDecimal anchorPrice = inst.getAnchorPrice();
         BigDecimal cycleStartPrice = inst.getCycleStartPrice();
         BigDecimal baseQty = inst.getBaseQty();
@@ -421,7 +421,7 @@ public class SimulationEngine {
             return "Position already open";
         }
         
-        BigDecimal spendableQuote = getSpendableQuote("USDT", isSimulation);
+        BigDecimal spendableQuote = getSpendableQuote(inst.getSymbol(), "USDT", isSimulation);
         BigDecimal quoteToSpend = inst.getQuoteAmount().min(spendableQuote);
         
         if (quoteToSpend.compareTo(BigDecimal.ZERO) <= 0) {
@@ -486,35 +486,73 @@ public class SimulationEngine {
         return msg;
     }
     
-    private BigDecimal getTakeProfitPct(Boolean isSimulation) {
-        return strategyConfigRepository.findByConfigKeyAndIsSimulation("TAKE_PROFIT_PCT", isSimulation)
-                .map(c -> new BigDecimal(c.getConfigValue()))
-                .orElse(defaultTakeProfitPct);
+    private BigDecimal parseBigDecimal(String val) {
+        if (val == null || val.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            return new BigDecimal(val.trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private Integer parseInteger(String val) {
+        if (val == null || val.trim().isEmpty()) {
+            return null;
+        }
+        try {
+            return Integer.parseInt(val.trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private BigDecimal getTakeProfitPct(String symbol, Boolean isSimulation) {
+        return strategyConfigRepository.findByConfigKeyAndIsSimulation("TAKE_PROFIT_PCT_" + symbol, isSimulation)
+                .map(c -> parseBigDecimal(c.getConfigValue()))
+                .filter(Objects::nonNull)
+                .orElseGet(() -> strategyConfigRepository.findByConfigKeyAndIsSimulation("TAKE_PROFIT_PCT", isSimulation)
+                        .map(c -> parseBigDecimal(c.getConfigValue()))
+                        .filter(Objects::nonNull)
+                        .orElse(defaultTakeProfitPct));
     }
     
-    private BigDecimal getStopLossPct(Boolean isSimulation) {
-        return strategyConfigRepository.findByConfigKeyAndIsSimulation("STOP_LOSS_PCT", isSimulation)
-                .map(c -> new BigDecimal(c.getConfigValue()))
-                .orElse(defaultStopLossPct);
+    private BigDecimal getStopLossPct(String symbol, Boolean isSimulation) {
+        return strategyConfigRepository.findByConfigKeyAndIsSimulation("STOP_LOSS_PCT_" + symbol, isSimulation)
+                .map(c -> parseBigDecimal(c.getConfigValue()))
+                .filter(Objects::nonNull)
+                .orElseGet(() -> strategyConfigRepository.findByConfigKeyAndIsSimulation("STOP_LOSS_PCT", isSimulation)
+                        .map(c -> parseBigDecimal(c.getConfigValue()))
+                        .filter(Objects::nonNull)
+                        .orElse(defaultStopLossPct));
     }
     
-    private BigDecimal getQuoteReserve(Boolean isSimulation) {
-        return strategyConfigRepository.findByConfigKeyAndIsSimulation("QUOTE_RESERVE", isSimulation)
-                .map(c -> new BigDecimal(c.getConfigValue()))
-                .orElse(defaultQuoteReserve);
+    private BigDecimal getQuoteReserve(String symbol, Boolean isSimulation) {
+        return strategyConfigRepository.findByConfigKeyAndIsSimulation("QUOTE_RESERVE_" + symbol, isSimulation)
+                .map(c -> parseBigDecimal(c.getConfigValue()))
+                .filter(Objects::nonNull)
+                .orElseGet(() -> strategyConfigRepository.findByConfigKeyAndIsSimulation("QUOTE_RESERVE", isSimulation)
+                        .map(c -> parseBigDecimal(c.getConfigValue()))
+                        .filter(Objects::nonNull)
+                        .orElse(defaultQuoteReserve));
     }
     
-    private Integer getMaxOrdersPerTick(Boolean isSimulation) {
-        return strategyConfigRepository.findByConfigKeyAndIsSimulation("MAX_ORDERS_PER_TICK", isSimulation)
-                .map(c -> Integer.parseInt(c.getConfigValue()))
-                .orElse(defaultMaxOrdersPerTick);
+    private Integer getMaxOrdersPerTick(String symbol, Boolean isSimulation) {
+        return strategyConfigRepository.findByConfigKeyAndIsSimulation("MAX_ORDERS_PER_TICK_" + symbol, isSimulation)
+                .map(c -> parseInteger(c.getConfigValue()))
+                .filter(Objects::nonNull)
+                .orElseGet(() -> strategyConfigRepository.findByConfigKeyAndIsSimulation("MAX_ORDERS_PER_TICK", isSimulation)
+                        .map(c -> parseInteger(c.getConfigValue()))
+                        .filter(Objects::nonNull)
+                        .orElse(defaultMaxOrdersPerTick));
     }
     
-    private BigDecimal getSpendableQuote(String quoteAsset, Boolean isSimulation) {
+    private BigDecimal getSpendableQuote(String symbol, String quoteAsset, Boolean isSimulation) {
         BigDecimal free = simAccountRepository.findByAssetAndIsSimulation(quoteAsset, isSimulation)
                 .map(SimAccount::getFreeBalance)
                 .orElse(BigDecimal.ZERO);
-        BigDecimal reserve = getQuoteReserve(isSimulation);
+        BigDecimal reserve = getQuoteReserve(symbol, isSimulation);
         return free.subtract(reserve).max(BigDecimal.ZERO);
     }
     
