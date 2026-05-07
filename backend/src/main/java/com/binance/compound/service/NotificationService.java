@@ -28,6 +28,10 @@ public class NotificationService {
         String title = mode + " " + eventType + " - " + symbol;
         String content = title + "\n\n" + details;
 
+        sendNotification(title, content);
+    }
+
+    public void sendNotification(String title, String content) {
         sendWeChatNotification(title, content);
         sendEmailNotification(title, content);
     }

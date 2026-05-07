@@ -46,7 +46,7 @@ public class PriceAlert {
     @Column(nullable = false)
     private Boolean triggered;
     
-    @Column(length = 500)
+    @Column(columnDefinition = "TEXT")
     private String message;
     
     @Column(nullable = false)

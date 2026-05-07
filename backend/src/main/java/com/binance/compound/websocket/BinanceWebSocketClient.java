@@ -13,6 +13,8 @@ import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.client.WebSocketClient;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
+import jakarta.annotation.PostConstruct;
+
 import java.math.BigDecimal;
 import java.util.Map;
 import java.util.Set;
@@ -40,6 +42,7 @@ public class BinanceWebSocketClient extends TextWebSocketHandler {
     
     private static final String WS_URL = "wss://stream.binance.com:9443/ws";
     
+    @PostConstruct
     public synchronized void connect() {
         if (isConnecting || (session != null && session.isOpen())) return;
         isConnecting = true;
@@ -76,7 +79,7 @@ public class BinanceWebSocketClient extends TextWebSocketHandler {
     }
     
     public void subscribe(String symbol) {
-        String streamName = symbol.toLowerCase() + "usdt@trade";
+        String streamName = symbol.toLowerCase() + "@trade";
         if (subscribedSymbols.add(streamName)) {
             sendSubscription(streamName, true);
             log.info("Subscribed to {}", streamName);
@@ -84,7 +87,7 @@ public class BinanceWebSocketClient extends TextWebSocketHandler {
     }
     
     public void unsubscribe(String symbol) {
-        String streamName = symbol.toLowerCase() + "usdt@trade";
+        String streamName = symbol.toLowerCase() + "@trade";
         if (subscribedSymbols.remove(streamName)) {
             sendSubscription(streamName, false);
             log.info("Unsubscribed from {}", streamName);

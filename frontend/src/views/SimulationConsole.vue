@@ -58,6 +58,18 @@
             <label>MAX_ORDERS_PER_TICK (每轮最大订单)</label>
             <input type="text" v-model="localConfig.MAX_ORDERS_PER_TICK" :placeholder="selectedConfigSymbol !== 'GLOBAL' ? '留空则使用全局默认' : ''" />
           </div>
+          <div class="form-group">
+            <label>RSI_OVERBOUGHT (RSI超买阈值)</label>
+            <input type="text" v-model="localConfig.RSI_OVERBOUGHT" :placeholder="selectedConfigSymbol !== 'GLOBAL' ? '留空则使用全局默认' : ''" />
+          </div>
+          <div class="form-group">
+            <label>RSI_OVERSOLD (RSI超卖阈值)</label>
+            <input type="text" v-model="localConfig.RSI_OVERSOLD" :placeholder="selectedConfigSymbol !== 'GLOBAL' ? '留空则使用全局默认' : ''" />
+          </div>
+          <div class="form-group">
+            <label>RSI_PERIOD (RSI 报警周期)</label>
+            <input type="text" v-model="localConfig.RSI_PERIOD" :placeholder="selectedConfigSymbol !== 'GLOBAL' ? '留空则使用全局默认' : ''" />
+          </div>
           <button @click="handleSaveConfig" class="btn-save">保存配置</button>
         </div>
 
@@ -212,6 +224,18 @@
             <label>MAX_ORDERS_PER_TICK (每轮最大订单)</label>
             <input type="text" v-model="localRealConfig.MAX_ORDERS_PER_TICK" :placeholder="selectedRealConfigSymbol !== 'GLOBAL' ? '留空则使用全局默认' : ''" />
           </div>
+          <div class="form-group">
+            <label>RSI_OVERBOUGHT (RSI超买阈值)</label>
+            <input type="text" v-model="localRealConfig.RSI_OVERBOUGHT" :placeholder="selectedRealConfigSymbol !== 'GLOBAL' ? '留空则使用全局默认' : ''" />
+          </div>
+          <div class="form-group">
+            <label>RSI_OVERSOLD (RSI超卖阈值)</label>
+            <input type="text" v-model="localRealConfig.RSI_OVERSOLD" :placeholder="selectedRealConfigSymbol !== 'GLOBAL' ? '留空则使用全局默认' : ''" />
+          </div>
+          <div class="form-group">
+            <label>RSI_PERIOD (RSI 报警周期)</label>
+            <input type="text" v-model="localRealConfig.RSI_PERIOD" :placeholder="selectedRealConfigSymbol !== 'GLOBAL' ? '留空则使用全局默认' : ''" />
+          </div>
           <button @click="handleSaveRealConfig" class="btn-save">保存配置</button>
         </div>
 
@@ -296,12 +320,18 @@ const selectedRealConfigSymbol = ref('GLOBAL')
 const localConfig = ref({
   TAKE_PROFIT_PCT: '0.03',
   QUOTE_RESERVE: '10',
-  MAX_ORDERS_PER_TICK: '5'
+  MAX_ORDERS_PER_TICK: '5',
+  RSI_OVERBOUGHT: '80',
+  RSI_OVERSOLD: '20',
+  RSI_PERIOD: '14'
 })
 const localRealConfig = ref({
   TAKE_PROFIT_PCT: '0.03',
   QUOTE_RESERVE: '10',
-  MAX_ORDERS_PER_TICK: '5'
+  MAX_ORDERS_PER_TICK: '5',
+  RSI_OVERBOUGHT: '80',
+  RSI_OVERSOLD: '20',
+  RSI_PERIOD: '14'
 })
 const fullRealConfig = ref({})
 const isSimMode = ref(store.isSimulation)
@@ -438,9 +468,13 @@ async function handleClearData() {
 
 async function handleSaveConfig() {
   try {
-    const suffix = selectedConfigSymbol.value === 'GLOBAL' ? '' : `_${selectedConfigSymbol.value}`
     for (const [baseKey, value] of Object.entries(localConfig.value)) {
-      const key = `${baseKey}${suffix}`
+      let key;
+      if (baseKey.startsWith('RSI_')) {
+          key = selectedConfigSymbol.value === 'GLOBAL' ? `${baseKey}_DEFAULT` : `${baseKey}_${selectedConfigSymbol.value}`
+      } else {
+          key = selectedConfigSymbol.value === 'GLOBAL' ? baseKey : `${baseKey}_${selectedConfigSymbol.value}`
+      }
       await store.updateConfig(key, value)
     }
     ElMessage.success('配置已保存')
@@ -452,9 +486,13 @@ async function handleSaveConfig() {
 
 async function handleSaveRealConfig() {
   try {
-    const suffix = selectedRealConfigSymbol.value === 'GLOBAL' ? '' : `_${selectedRealConfigSymbol.value}`
     for (const [baseKey, value] of Object.entries(localRealConfig.value)) {
-      const key = `${baseKey}${suffix}`
+      let key;
+      if (baseKey.startsWith('RSI_')) {
+          key = selectedRealConfigSymbol.value === 'GLOBAL' ? `${baseKey}_DEFAULT` : `${baseKey}_${selectedRealConfigSymbol.value}`
+      } else {
+          key = selectedRealConfigSymbol.value === 'GLOBAL' ? baseKey : `${baseKey}_${selectedRealConfigSymbol.value}`
+      }
       await compoundApi.updateConfig(key, value, false)
       fullRealConfig.value[key] = value
     }
@@ -468,16 +506,24 @@ async function handleSaveRealConfig() {
 function handleConfigSymbolChange() {
   const cfg = store.config
   const suffix = selectedConfigSymbol.value === 'GLOBAL' ? '' : `_${selectedConfigSymbol.value}`
+  const rsiSuffix = selectedConfigSymbol.value === 'GLOBAL' ? '_DEFAULT' : `_${selectedConfigSymbol.value}`
   localConfig.value.TAKE_PROFIT_PCT = cfg[`TAKE_PROFIT_PCT${suffix}`] || (selectedConfigSymbol.value === 'GLOBAL' ? '0.03' : '')
   localConfig.value.QUOTE_RESERVE = cfg[`QUOTE_RESERVE${suffix}`] || (selectedConfigSymbol.value === 'GLOBAL' ? '10' : '')
   localConfig.value.MAX_ORDERS_PER_TICK = cfg[`MAX_ORDERS_PER_TICK${suffix}`] || (selectedConfigSymbol.value === 'GLOBAL' ? '5' : '')
+  localConfig.value.RSI_OVERBOUGHT = cfg[`RSI_OVERBOUGHT${rsiSuffix}`] || (selectedConfigSymbol.value === 'GLOBAL' ? '80' : '')
+  localConfig.value.RSI_OVERSOLD = cfg[`RSI_OVERSOLD${rsiSuffix}`] || (selectedConfigSymbol.value === 'GLOBAL' ? '20' : '')
+  localConfig.value.RSI_PERIOD = cfg[`RSI_PERIOD${rsiSuffix}`] || (selectedConfigSymbol.value === 'GLOBAL' ? '14' : '')
 }
 
 function handleRealConfigSymbolChange() {
   const suffix = selectedRealConfigSymbol.value === 'GLOBAL' ? '' : `_${selectedRealConfigSymbol.value}`
+  const rsiSuffix = selectedRealConfigSymbol.value === 'GLOBAL' ? '_DEFAULT' : `_${selectedRealConfigSymbol.value}`
   localRealConfig.value.TAKE_PROFIT_PCT = fullRealConfig.value[`TAKE_PROFIT_PCT${suffix}`] || (selectedRealConfigSymbol.value === 'GLOBAL' ? '0.03' : '')
   localRealConfig.value.QUOTE_RESERVE = fullRealConfig.value[`QUOTE_RESERVE${suffix}`] || (selectedRealConfigSymbol.value === 'GLOBAL' ? '10' : '')
   localRealConfig.value.MAX_ORDERS_PER_TICK = fullRealConfig.value[`MAX_ORDERS_PER_TICK${suffix}`] || (selectedRealConfigSymbol.value === 'GLOBAL' ? '5' : '')
+  localRealConfig.value.RSI_OVERBOUGHT = fullRealConfig.value[`RSI_OVERBOUGHT${rsiSuffix}`] || (selectedRealConfigSymbol.value === 'GLOBAL' ? '80' : '')
+  localRealConfig.value.RSI_OVERSOLD = fullRealConfig.value[`RSI_OVERSOLD${rsiSuffix}`] || (selectedRealConfigSymbol.value === 'GLOBAL' ? '20' : '')
+  localRealConfig.value.RSI_PERIOD = fullRealConfig.value[`RSI_PERIOD${rsiSuffix}`] || (selectedRealConfigSymbol.value === 'GLOBAL' ? '14' : '')
 }
 
 async function loadAiConfig() {
@@ -599,15 +645,23 @@ async function handleModeChange(val) {
     await loadApiAccounts()
     const cfg = fullRealConfig.value
     const suffix = selectedRealConfigSymbol.value === 'GLOBAL' ? '' : `_${selectedRealConfigSymbol.value}`
+    const rsiSuffix = selectedRealConfigSymbol.value === 'GLOBAL' ? '_DEFAULT' : `_${selectedRealConfigSymbol.value}`
     localRealConfig.value.TAKE_PROFIT_PCT = cfg[`TAKE_PROFIT_PCT${suffix}`] || (selectedRealConfigSymbol.value === 'GLOBAL' ? '0.03' : '')
     localRealConfig.value.QUOTE_RESERVE = cfg[`QUOTE_RESERVE${suffix}`] || (selectedRealConfigSymbol.value === 'GLOBAL' ? '10' : '')
     localRealConfig.value.MAX_ORDERS_PER_TICK = cfg[`MAX_ORDERS_PER_TICK${suffix}`] || (selectedRealConfigSymbol.value === 'GLOBAL' ? '5' : '')
+    localRealConfig.value.RSI_OVERBOUGHT = cfg[`RSI_OVERBOUGHT${rsiSuffix}`] || (selectedRealConfigSymbol.value === 'GLOBAL' ? '80' : '')
+    localRealConfig.value.RSI_OVERSOLD = cfg[`RSI_OVERSOLD${rsiSuffix}`] || (selectedRealConfigSymbol.value === 'GLOBAL' ? '20' : '')
+    localRealConfig.value.RSI_PERIOD = cfg[`RSI_PERIOD${rsiSuffix}`] || (selectedRealConfigSymbol.value === 'GLOBAL' ? '14' : '')
   } else {
     const cfg = store.config
     const suffix = selectedConfigSymbol.value === 'GLOBAL' ? '' : `_${selectedConfigSymbol.value}`
+    const rsiSuffix = selectedConfigSymbol.value === 'GLOBAL' ? '_DEFAULT' : `_${selectedConfigSymbol.value}`
     localConfig.value.TAKE_PROFIT_PCT = cfg[`TAKE_PROFIT_PCT${suffix}`] || (selectedConfigSymbol.value === 'GLOBAL' ? '0.03' : '')
     localConfig.value.QUOTE_RESERVE = cfg[`QUOTE_RESERVE${suffix}`] || (selectedConfigSymbol.value === 'GLOBAL' ? '10' : '')
     localConfig.value.MAX_ORDERS_PER_TICK = cfg[`MAX_ORDERS_PER_TICK${suffix}`] || (selectedConfigSymbol.value === 'GLOBAL' ? '5' : '')
+    localConfig.value.RSI_OVERBOUGHT = cfg[`RSI_OVERBOUGHT${rsiSuffix}`] || (selectedConfigSymbol.value === 'GLOBAL' ? '80' : '')
+    localConfig.value.RSI_OVERSOLD = cfg[`RSI_OVERSOLD${rsiSuffix}`] || (selectedConfigSymbol.value === 'GLOBAL' ? '20' : '')
+    localConfig.value.RSI_PERIOD = cfg[`RSI_PERIOD${rsiSuffix}`] || (selectedConfigSymbol.value === 'GLOBAL' ? '14' : '')
   }
 }
 
@@ -790,6 +844,9 @@ onMounted(async () => {
   localConfig.value.TAKE_PROFIT_PCT = cfg.TAKE_PROFIT_PCT || '0.03'
   localConfig.value.QUOTE_RESERVE = cfg.QUOTE_RESERVE || '10'
   localConfig.value.MAX_ORDERS_PER_TICK = cfg.MAX_ORDERS_PER_TICK || '5'
+  localConfig.value.RSI_OVERBOUGHT = cfg.RSI_OVERBOUGHT_DEFAULT || '80'
+  localConfig.value.RSI_OVERSOLD = cfg.RSI_OVERSOLD_DEFAULT || '20'
+  localConfig.value.RSI_PERIOD = cfg.RSI_PERIOD_DEFAULT || '14'
   await loadApiAccounts()
   await loadAiConfig()
   await loadNotifyConfig()
@@ -802,6 +859,9 @@ onMounted(async () => {
   localRealConfig.value.TAKE_PROFIT_PCT = realCfg.TAKE_PROFIT_PCT || '0.03'
   localRealConfig.value.QUOTE_RESERVE = realCfg.QUOTE_RESERVE || '10'
   localRealConfig.value.MAX_ORDERS_PER_TICK = realCfg.MAX_ORDERS_PER_TICK || '5'
+  localRealConfig.value.RSI_OVERBOUGHT = realCfg.RSI_OVERBOUGHT_DEFAULT || '80'
+  localRealConfig.value.RSI_OVERSOLD = realCfg.RSI_OVERSOLD_DEFAULT || '20'
+  localRealConfig.value.RSI_PERIOD = realCfg.RSI_PERIOD_DEFAULT || '14'
   window.addEventListener('logsUpdated', handleLogsUpdate)
 })
 

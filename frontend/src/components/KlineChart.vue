@@ -1,5 +1,17 @@
 <template>
   <div class="kline-chart-wrapper">
+    <div class="chart-header">
+      <div class="intervals">
+        <span 
+          v-for="int in intervals" 
+          :key="int"
+          :class="{ active: currentInterval === int }"
+          @click="changeInterval(int)"
+        >
+          {{ int }}
+        </span>
+      </div>
+    </div>
     <div ref="chartRef" class="chart-container"></div>
     <div class="chart-loading" v-if="loading">加载中...</div>
   </div>
@@ -20,6 +32,14 @@ const chartRef = ref(null)
 const loading = ref(false)
 let chart = null
 let updateTimer = null
+
+const intervals = ['1m', '15m', '1h', '4h', '1d']
+const currentInterval = ref('1m')
+
+function changeInterval(int) {
+  currentInterval.value = int
+  updateChart()
+}
 
 async function fetchKlineData(symbol, interval = '1m', limit = 500) {
   try {
@@ -95,11 +115,57 @@ function calculateVolumeMA(data, period = 5) {
   return ma
 }
 
+function calculateRSI(data, period) {
+  const rsi = []
+  let sumGain = 0
+  let sumLoss = 0
+  let avgGain = 0
+  let avgLoss = 0
+
+  for (let i = 0; i < data.length; i++) {
+    if (i === 0) {
+      rsi.push('-')
+      continue
+    }
+    const diff = data[i].close - data[i - 1].close
+    if (i <= period) {
+      if (diff >= 0) sumGain += diff
+      else sumLoss += Math.abs(diff)
+      
+      if (i < period) {
+        rsi.push('-')
+      } else {
+        avgGain = sumGain / period
+        avgLoss = sumLoss / period
+        
+        if (avgLoss === 0) rsi.push('100.00')
+        else {
+          const rs = avgGain / avgLoss
+          rsi.push((100 - (100 / (1 + rs))).toFixed(2))
+        }
+      }
+    } else {
+      const gain = diff >= 0 ? diff : 0
+      const loss = diff < 0 ? Math.abs(diff) : 0
+      
+      avgGain = (avgGain * (period - 1) + gain) / period
+      avgLoss = (avgLoss * (period - 1) + loss) / period
+      
+      if (avgLoss === 0) rsi.push('100.00')
+      else {
+        const rs = avgGain / avgLoss
+        rsi.push((100 - (100 / (1 + rs))).toFixed(2))
+      }
+    }
+  }
+  return rsi
+}
+
 async function updateChart() {
   if (!chart) return
   
   loading.value = true
-  const data = await fetchKlineData(props.symbol, '1m', 500)
+  const data = await fetchKlineData(props.symbol, currentInterval.value, 500)
   loading.value = false
 
   if (data.length === 0) return
@@ -115,6 +181,10 @@ async function updateChart() {
 
   const bb = calculateBollingerBands(data, 20, 2)
   const volMA5 = calculateVolumeMA(data, 5)
+  
+  const rsi6 = calculateRSI(data, 6)
+  const rsi14 = calculateRSI(data, 14)
+  const rsi24 = calculateRSI(data, 24)
 
   const upColor = '#0ecb81'
   const downColor = '#f6465d'
@@ -130,25 +200,30 @@ async function updateChart() {
       textStyle: { color: '#e0e6ed' }
     },
     legend: {
-      data: ['MA5', 'MA10', 'MA20', 'MA60', 'BB Upper', 'BB Lower', 'Volume MA5'],
-      bottom: 10,
+      data: ['MA5', 'MA10', 'MA20', 'MA60', 'BB Upper', 'BB Lower', 'Volume MA5', 'RSI6', 'RSI14', 'RSI24'],
+      top: 5,
+      right: '10%',
+      type: 'scroll',
       textStyle: { color: '#848e9c' }
     },
     grid: [
-      { left: '10%', right: '8%', top: '8%', height: '55%' },
-      { left: '10%', right: '8%', top: '68%', height: '20%' }
+      { left: '10%', right: '8%', top: '8%', height: '45%' },
+      { left: '10%', right: '8%', top: '56%', height: '15%' },
+      { left: '10%', right: '8%', top: '74%', height: '15%' }
     ],
     xAxis: [
-      { type: 'category', data: times, gridIndex: 0, axisLine: { lineStyle: { color: '#2a3042' } }, axisLabel: { color: '#848e9c', fontSize: 10, rotate: 30 }, splitLine: { show: false } },
-      { type: 'category', data: times, gridIndex: 1, axisLine: { lineStyle: { color: '#2a3042' } }, axisLabel: { show: false }, splitLine: { show: false } }
+      { type: 'category', data: times, gridIndex: 0, axisLine: { lineStyle: { color: '#2a3042' } }, axisLabel: { show: false }, splitLine: { show: false } },
+      { type: 'category', data: times, gridIndex: 1, axisLine: { lineStyle: { color: '#2a3042' } }, axisLabel: { show: false }, splitLine: { show: false } },
+      { type: 'category', data: times, gridIndex: 2, axisLine: { lineStyle: { color: '#2a3042' } }, axisLabel: { color: '#848e9c', fontSize: 10, rotate: 30 }, splitLine: { show: false } }
     ],
     yAxis: [
       { type: 'value', scale: true, gridIndex: 0, splitLine: { lineStyle: { color: '#2a3042', type: 'dashed' } }, axisLine: { lineStyle: { color: '#2a3042' } }, axisLabel: { color: '#848e9c' } },
-      { type: 'value', gridIndex: 1, splitLine: { lineStyle: { color: '#2a3042', type: 'dashed' } }, axisLine: { lineStyle: { color: '#2a3042' } }, axisLabel: { color: '#848e9c' } }
+      { type: 'value', gridIndex: 1, splitLine: { lineStyle: { color: '#2a3042', type: 'dashed' } }, axisLine: { lineStyle: { color: '#2a3042' } }, axisLabel: { color: '#848e9c' } },
+      { type: 'value', gridIndex: 2, splitLine: { lineStyle: { color: '#2a3042', type: 'dashed' } }, axisLine: { lineStyle: { color: '#2a3042' } }, axisLabel: { color: '#848e9c' } }
     ],
     dataZoom: [
-      { type: 'inside', xAxisIndex: [0, 1], start: 70, end: 100 },
-      { type: 'slider', xAxisIndex: [0, 1], bottom: 40, height: 20 }
+      { type: 'inside', xAxisIndex: [0, 1, 2], start: 70, end: 100 },
+      { type: 'slider', xAxisIndex: [0, 1, 2], bottom: 0, height: 20 }
     ],
     series: [
       {
@@ -183,7 +258,10 @@ async function updateChart() {
           }
         }
       },
-      { name: 'Volume MA5', type: 'line', data: volMA5, xAxisIndex: 1, yAxisIndex: 1, smooth: true, showSymbol: false, lineStyle: { width: 1, color: '#f0b90b' } }
+      { name: 'Volume MA5', type: 'line', data: volMA5, xAxisIndex: 1, yAxisIndex: 1, smooth: true, showSymbol: false, lineStyle: { width: 1, color: '#f0b90b' } },
+      { name: 'RSI6', type: 'line', data: rsi6, xAxisIndex: 2, yAxisIndex: 2, smooth: true, showSymbol: false, lineStyle: { width: 1, color: '#f0b90b' } },
+      { name: 'RSI14', type: 'line', data: rsi14, xAxisIndex: 2, yAxisIndex: 2, smooth: true, showSymbol: false, lineStyle: { width: 1, color: '#8b5cf6' } },
+      { name: 'RSI24', type: 'line', data: rsi24, xAxisIndex: 2, yAxisIndex: 2, smooth: true, showSymbol: false, lineStyle: { width: 1, color: '#06b6d4' } }
     ]
   }
 
@@ -250,11 +328,42 @@ onUnmounted(() => {
   background: #1a1f2e;
   border-radius: 8px;
   overflow: hidden;
+  padding-top: 40px;
+}
+
+.chart-header {
+  position: absolute;
+  top: 10px;
+  left: 20px;
+  z-index: 100;
+}
+
+.intervals {
+  display: flex;
+  gap: 10px;
+}
+
+.intervals span {
+  cursor: pointer;
+  color: #848e9c;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  transition: all 0.2s;
+}
+
+.intervals span:hover {
+  background: rgba(42, 48, 66, 0.5);
+}
+
+.intervals span.active {
+  color: #fff;
+  background: #2a3042;
 }
 
 .chart-container {
   width: 100%;
-  height: 100%;
+  height: calc(100% - 40px);
 }
 
 .chart-loading {

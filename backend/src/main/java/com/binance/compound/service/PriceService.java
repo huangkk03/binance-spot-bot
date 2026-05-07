@@ -123,6 +123,8 @@ public class PriceService {
                     priceCache.put(symbol, price);
                     return price;
                 }
+            } else {
+                log.warn("Failed to fetch price for {}, API returned status {}: {}", symbol, response.statusCode(), response.body());
             }
         } catch (Exception e) {
             log.warn("Failed to fetch price for {}: {}", symbol, e.getMessage());

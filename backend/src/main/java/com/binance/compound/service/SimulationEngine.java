@@ -302,7 +302,7 @@ public class SimulationEngine {
         BigDecimal takeProfitPrice = cycleStartPrice.multiply(BigDecimal.ONE.add(takeProfitPct));
         BigDecimal stopLossPrice = cycleStartPrice.multiply(BigDecimal.ONE.subtract(stopLossPct));
         
-        if (price.compareTo(takeProfitPrice) >= 0) {
+        if (price.compareTo(takeProfitPrice) >= 0 && takeProfitPct.compareTo(BigDecimal.ZERO) > 0) {
             return executeTakeProfit(inst, price, baseQty, isSimulation);
         } else if (price.compareTo(stopLossPrice) <= 0 && stopLossPct.compareTo(BigDecimal.ZERO) > 0) {
             return executeStopLoss(inst, price, baseQty, isSimulation);

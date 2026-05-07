@@ -136,7 +136,7 @@ public class RealTradingService {
                 BigDecimal takeProfitPrice = cycleStartPrice.multiply(BigDecimal.ONE.add(takeProfitPct));
                 BigDecimal stopLossPrice = cycleStartPrice.multiply(BigDecimal.ONE.subtract(stopLossPct));
                 
-                if (price.compareTo(takeProfitPrice) >= 0) {
+                if (price.compareTo(takeProfitPrice) >= 0 && takeProfitPct.compareTo(BigDecimal.ZERO) > 0) {
                     Map<String, Object> closeResult = closePositionInternal(inst, activeAccount, accountData, EVENT_TAKE_PROFIT);
                     if (Boolean.TRUE.equals(closeResult.get("success"))) {
                         actions.add((String) closeResult.get("message"));

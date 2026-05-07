@@ -44,6 +44,7 @@ services:
       DB_PASSWORD: rootpassword
       REDIS_HOST: redis
       SPRING_PROFILES_ACTIVE: docker
+      BINANCE_PROXY: ${BINANCE_PROXY:-}
     ports:
       - "8080:8080"
     depends_on:

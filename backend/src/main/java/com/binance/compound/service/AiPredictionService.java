@@ -59,7 +59,7 @@ public class AiPredictionService {
     public String generateBtcPredictionReport() {
         try {
             // 1. Fetch BTC Data (Price & 24h Volume)
-            Map<String, Object> tickerData = getBtcTickerData();
+            Map<String, Object> tickerData = getTickerData("BTCUSDT");
             String currentPrice = (String) tickerData.getOrDefault("lastPrice", "N/A");
             String volume = (String) tickerData.getOrDefault("volume", "N/A");
             String priceChangePercent = (String) tickerData.getOrDefault("priceChangePercent", "N/A");
@@ -90,12 +90,47 @@ public class AiPredictionService {
         }
     }
 
-    private Map<String, Object> getBtcTickerData() {
+    public String generateRsiTradingAdvice(String symbol, String interval, String rsiType, java.math.BigDecimal rsiValue) {
+        try {
+            // 1. Fetch Data (Price & 24h Volume)
+            Map<String, Object> tickerData = getTickerData(symbol);
+            String currentPrice = (String) tickerData.getOrDefault("lastPrice", "N/A");
+            String volume = (String) tickerData.getOrDefault("volume", "N/A");
+            String priceChangePercent = (String) tickerData.getOrDefault("priceChangePercent", "N/A");
+
+            // 2. Build Prompt
+            String actionContext = "RSI_OVERBOUGHT".equals(rsiType) ? "超买 (RSI >= 80)" : "超卖 (RSI <= 20)";
+            String prompt = String.format(
+                "请作为一名专业的加密货币技术分析助理，针对 %s 在 %s 级别出现 %s 的极端行情，生成一份技术面的局势分析报告。\n" +
+                "当前市场数据：\n" +
+                "- RSI值: %s\n" +
+                "- 最新价格: %s USDT\n" +
+                "- 24小时交易量: %s\n" +
+                "- 24小时涨跌幅: %s%%\n\n" +
+                "报告必须包含以下部分：\n" +
+                "1. 局势分析（结合RSI极值与当前价格）\n" +
+                "2. 理论多空方向（偏多 / 偏空 / 震荡）\n" +
+                "3. 关键阻力位（给出具体价格或区间）\n" +
+                "4. 关键支撑位（给出具体价格或区间）\n\n" +
+                "请使用专业、客观的中文进行输出，排版清晰。（声明：仅供技术交流与学习，不构成任何投资建议）",
+                symbol, interval, actionContext, rsiValue.toString(), currentPrice, volume, priceChangePercent
+            );
+
+            // 3. Call AI API
+            return callAiApi(prompt);
+
+        } catch (Exception e) {
+            log.error("Failed to generate RSI trading advice for {}", symbol, e);
+            return "生成建议失败: " + e.getMessage();
+        }
+    }
+
+    private Map<String, Object> getTickerData(String symbol) {
         Map<String, Object> result = new HashMap<>();
         try {
             HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create("https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT"))
+                    .uri(URI.create("https://api.binance.com/api/v3/ticker/24hr?symbol=" + symbol))
                     .GET()
                     .build();
 
@@ -107,7 +142,7 @@ public class AiPredictionService {
                 result.put("priceChangePercent", node.has("priceChangePercent") ? node.get("priceChangePercent").asText() : "");
             }
         } catch (Exception e) {
-            log.warn("Failed to fetch BTC ticker data", e);
+            log.warn("Failed to fetch ticker data for {}", symbol, e);
         }
         return result;
     }

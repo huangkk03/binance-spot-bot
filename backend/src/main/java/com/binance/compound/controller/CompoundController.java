@@ -28,6 +28,7 @@ import com.binance.compound.service.SimAccountService;
 import com.binance.compound.service.SimulationEngine;
 import com.binance.compound.service.PriceService;
 import com.binance.compound.service.TDScannerService;
+import com.binance.compound.service.RSIScannerService;
 import com.binance.compound.service.RealTradingService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -50,6 +51,7 @@ public class CompoundController {
     private final SimAccountService simAccountService;
     private final PriceService priceService;
     private final TDScannerService tdScannerService;
+    private final RSIScannerService rsiScannerService;
     private final RealTradingService realTradingService;
     private final StrategyConfigRepository strategyConfigRepository;
     private final InstanceEventRepository instanceEventRepository;
@@ -317,7 +319,8 @@ public class CompoundController {
     @PostMapping("/alerts/scan")
     public Map<String, Object> triggerScan() {
         tdScannerService.scanTDIndicators();
-        return Map.of("success", true, "message", "TD scan triggered");
+        rsiScannerService.scanRSIIndicators();
+        return Map.of("success", true, "message", "TD & RSI scan triggered");
     }
     
     @PostMapping("/real-tick")
