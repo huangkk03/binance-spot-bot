@@ -435,7 +435,7 @@ async function handleRealTick() {
   }
   
   try {
-    store.setLoading(true)
+    store.isLoading = true
     const result = await compoundApi.executeRealTick(selectedSymbols.value, quoteAmount.value)
     if (result.success) {
       saveLog('真实Tick', `执行成功: ${result.message}`)
@@ -448,7 +448,7 @@ async function handleRealTick() {
     saveLog('真实Tick失败', e.message)
     ElMessage.error('执行失败: ' + e.message)
   } finally {
-    store.setLoading(false)
+    store.isLoading = false
   }
 }
 

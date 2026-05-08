@@ -51,6 +51,12 @@ public class RealTradingService {
     @Value("${trading.default-max-orders-per-tick:5}")
     private Integer defaultMaxOrdersPerTick;
     
+    @Value("${trading.auto-tick-enabled:false}")
+    private Boolean autoTickEnabled;
+    
+    @Value("${trading.auto-tick-interval-ms:30000}")
+    private Long autoTickIntervalMs;
+
     @Transactional
     public Map<String, Object> executeRealTick(List<String> symbols, BigDecimal customQuoteAmount) {
         Map<String, Object> result = new HashMap<>();
@@ -543,5 +549,30 @@ public class RealTradingService {
     
     private int getStepSize(String symbol) {
         return binanceApiService.getStepSize(symbol);
+    }
+
+    private static final List<String> DEFAULT_SYMBOLS = Arrays.asList(
+            "BTCUSDT", "ETHUSDT", "BNBUSDT", "ADAUSDT", "DOGEUSDT", "SOLUSDT");
+
+    @org.springframework.scheduling.annotation.Scheduled(fixedRateString = "${trading.auto-tick-interval-ms:30000}")
+    public void autoExecuteTick() {
+        log.debug("Real auto tick scheduler triggered, enabled={}", autoTickEnabled);
+        if (autoTickEnabled == null || !autoTickEnabled) {
+            log.debug("Real auto tick is disabled");
+            return;
+        }
+        
+        try {
+            log.info("Real auto tick starting for symbols: {}", DEFAULT_SYMBOLS);
+            Map<String, Object> result = executeRealTick(DEFAULT_SYMBOLS, null);
+            List<String> actions = (List<String>) result.get("actions");
+            if (actions != null && !actions.isEmpty()) {
+                log.info("Real auto tick executed, actions: {}", actions);
+            } else {
+                log.debug("Real auto tick completed with no actions");
+            }
+        } catch (Exception e) {
+            log.error("Real auto tick failed: {}", e.getMessage(), e);
+        }
     }
 }
