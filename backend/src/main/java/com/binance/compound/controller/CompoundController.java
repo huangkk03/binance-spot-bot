@@ -327,7 +327,28 @@ public class CompoundController {
     public Map<String, Object> executeRealTick(
             @RequestBody List<String> symbols,
             @RequestParam(required = false) BigDecimal quoteAmount) {
-        return realTradingService.executeRealTick(symbols, quoteAmount);
+        return realTradingService.executeRealTick(symbols, quoteAmount, true);
+    }
+    
+    @PostMapping("/real-trade/open")
+    public Map<String, Object> manualOpenPosition(@RequestBody Map<String, Object> request) {
+        String symbol = (String) request.get("symbol");
+        Object amountObj = request.get("quoteAmount");
+        BigDecimal quoteAmount;
+        
+        if (amountObj instanceof Number) {
+            quoteAmount = new BigDecimal(amountObj.toString());
+        } else if (amountObj instanceof String) {
+            quoteAmount = new BigDecimal((String) amountObj);
+        } else {
+            return Map.of("success", false, "message", "Invalid quoteAmount");
+        }
+        
+        if (symbol == null || symbol.isEmpty()) {
+            return Map.of("success", false, "message", "Symbol is required");
+        }
+        
+        return realTradingService.manualOpenPosition(symbol, quoteAmount);
     }
     
     @PostMapping("/simulation/clear")

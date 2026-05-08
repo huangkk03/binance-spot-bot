@@ -424,6 +424,30 @@ async function handleTick() {
   }
 }
 
+function formatRealTickErrors(errors) {
+  if (!errors || errors.length === 0) return ''
+  const first = errors[0]
+  if (typeof first === 'string') return errors.join('; ')
+  return errors
+    .map((e) => {
+      if (e && typeof e === 'object') {
+        const sym = e.symbol || ''
+        const err = e.error
+        const errStr = Array.isArray(err) ? err.join('; ') : String(err ?? '')
+        return sym ? `${sym}: ${errStr}` : errStr
+      }
+      return String(e)
+    })
+    .join('; ')
+}
+
+function formatRealTickFailureText(result) {
+  const text = formatRealTickErrors(result.errors)
+  if (text) return text
+  if (result.message) return result.message
+  return '未知错误'
+}
+
 async function handleRealTick() {
   if (!activeAccount.value) {
     ElMessage.warning('请先选择并激活一个API账户')
@@ -433,16 +457,39 @@ async function handleRealTick() {
     ElMessage.warning('请至少选择一个交易对')
     return
   }
-  
+
   try {
     store.isLoading = true
     const result = await compoundApi.executeRealTick(selectedSymbols.value, quoteAmount.value)
     if (result.success) {
-      saveLog('真实Tick', `执行成功: ${result.message}`)
-      ElMessage.success(result.message)
+      const actions = Array.isArray(result.actions) ? result.actions : []
+      for (const action of actions) {
+        saveLog('真实Tick', action)
+      }
+      if (actions.length === 0) {
+        saveLog(
+          '真实Tick',
+          '本轮无交易动作：可能原因：① 该交易对已有真实周期记录（不会重复首买）；② 未填写投入金额（手动首买需要）；③ 止盈/止损/回补条件未触发。定时任务不会自动首买。'
+        )
+      }
+      const errText = formatRealTickErrors(result.errors)
+      if (errText) {
+        saveLog('真实Tick', `告警: ${errText}`)
+      }
+      const balPart = result.usdtBalance ? `；USDT 可用 ${result.usdtBalance}` : ''
+      let toastMsg =
+        actions.length > 0
+          ? `真实 Tick 完成，共 ${actions.length} 条动作${balPart}`
+          : `真实 Tick 已完成，本轮无交易动作${balPart}`
+      if (errText) {
+        ElMessage.warning(`${toastMsg}；${errText}`)
+      } else {
+        ElMessage.success(toastMsg)
+      }
     } else {
-      saveLog('真实Tick', `执行失败: ${result.message}`)
-      ElMessage.error(result.message)
+      const failText = formatRealTickFailureText(result)
+      saveLog('真实Tick', `执行失败: ${failText}`)
+      ElMessage.error(failText)
     }
   } catch (e) {
     saveLog('真实Tick失败', e.message)

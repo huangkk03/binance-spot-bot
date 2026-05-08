@@ -57,8 +57,12 @@ public class RealTradingService {
     @Value("${trading.auto-tick-interval-ms:30000}")
     private Long autoTickIntervalMs;
 
+    /**
+     * @param allowInitialOpen true：手动真实 Tick 时，对该交易对尚无真实实例则按 customQuoteAmount 首买（与模拟手动 Tick 一致）；
+     *                         false：定时任务，绝不自动首买。
+     */
     @Transactional
-    public Map<String, Object> executeRealTick(List<String> symbols, BigDecimal customQuoteAmount) {
+    public Map<String, Object> executeRealTick(List<String> symbols, BigDecimal customQuoteAmount, boolean allowInitialOpen) {
         Map<String, Object> result = new HashMap<>();
         List<String> actions = new ArrayList<>();
         List<Map<String, Object>> errors = new ArrayList<>();
@@ -114,9 +118,63 @@ public class RealTradingService {
                 }
             }
         }
+
+        int remainingOrders = getMaxOrdersPerTick("GLOBAL");
+        if (allowInitialOpen && customQuoteAmount != null && customQuoteAmount.compareTo(BigDecimal.ZERO) > 0) {
+            for (String symbol : symbols) {
+                if (remainingOrders <= 0) {
+                    break;
+                }
+                if (!prices.containsKey(symbol)) {
+                    continue;
+                }
+                if (cycleInstanceRepository.countBySymbol(symbol, IS_SIMULATION) > 0) {
+                    continue;
+                }
+                Map<String, Object> openRes = manualOpenPosition(symbol, customQuoteAmount);
+                if (Boolean.TRUE.equals(openRes.get("success"))) {
+                    actions.add((String) openRes.get("message"));
+                    remainingOrders--;
+                    balanceResult = binanceApiService.getAccountBalances(apiKey, apiSecret, testnet, proxyUrl);
+                    if (!Boolean.TRUE.equals(balanceResult.get("success"))) {
+                        Map<String, Object> errMap = new HashMap<>();
+                        errMap.put("symbol", symbol);
+                        errMap.put("error", balanceResult.get("errors") != null
+                                ? balanceResult.get("errors") : List.of("首买后刷新余额失败"));
+                        errors.add(errMap);
+                        break;
+                    }
+                    accountData = (Map<String, Object>) balanceResult.get("account");
+                    usdtBalance = BigDecimal.ZERO;
+                    if (accountData != null && accountData.containsKey("balances")) {
+                        List<Map<String, Object>> bals = (List<Map<String, Object>>) accountData.get("balances");
+                        for (Map<String, Object> bal : bals) {
+                            if ("USDT".equals(bal.get("asset"))) {
+                                String freeStr = (String) bal.get("free");
+                                if (freeStr != null && !freeStr.isEmpty()) {
+                                    usdtBalance = new BigDecimal(freeStr);
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Map<String, Object> errMap = new HashMap<>();
+                    errMap.put("symbol", symbol);
+                    errMap.put("error", openRes.get("errors") != null
+                            ? openRes.get("errors") : List.of("手动Tick首买失败"));
+                    errors.add(errMap);
+                    log.warn("REAL TICK initial open failed for {}: {}", symbol, openRes.get("errors"));
+                }
+            }
+        }
         
         List<CycleInstance> allInstances = cycleInstanceRepository
                 .findBySymbolInAndIsSimulationAndIsOpenTrue(symbols, IS_SIMULATION);
+        
+        log.info("REAL TICK allInstances count: {}", allInstances.size());
+        for (CycleInstance inst : allInstances) {
+            log.info("REAL TICK instance: symbol={}, id={}, isOpen={}", inst.getSymbol(), inst.getInstanceId(), inst.getIsOpen());
+        }
         
         // Also get closed instances that are waiting for reentry
         List<CycleInstance> closedInstances = cycleInstanceRepository
@@ -143,11 +201,18 @@ public class RealTradingService {
                 BigDecimal stopLossPrice = cycleStartPrice.multiply(BigDecimal.ONE.subtract(stopLossPct));
                 
                 if (price.compareTo(takeProfitPrice) >= 0 && takeProfitPct.compareTo(BigDecimal.ZERO) > 0) {
+                    log.info("REAL TICK: price {} >= takeProfitPrice {} for {}", price, takeProfitPrice, inst.getSymbol());
                     Map<String, Object> closeResult = closePositionInternal(inst, activeAccount, accountData, EVENT_TAKE_PROFIT);
                     if (Boolean.TRUE.equals(closeResult.get("success"))) {
                         actions.add((String) closeResult.get("message"));
                         takeProfitCount++;
                         log.info("REAL TAKE_PROFIT: {} profit={}", inst.getSymbol(), closeResult.get("profit"));
+                    } else {
+                        log.warn("REAL TAKE_PROFIT FAILED for {}: {}", inst.getSymbol(), closeResult.get("errors"));
+                        Map<String, Object> errMap = new HashMap<>();
+                        errMap.put("symbol", inst.getSymbol());
+                        errMap.put("error", closeResult.get("errors"));
+                        errors.add(errMap);
                     }
                 } else if (price.compareTo(stopLossPrice) <= 0 && stopLossPct.compareTo(BigDecimal.ZERO) > 0) {
                     Map<String, Object> closeResult = closePositionInternal(inst, activeAccount, accountData, "STOP_LOSS");
@@ -173,104 +238,141 @@ public class RealTradingService {
             }
         }
         
-        BigDecimal spendableQuote;
-        if (customQuoteAmount != null && customQuoteAmount.compareTo(BigDecimal.ZERO) > 0) {
-            spendableQuote = customQuoteAmount.min(usdtBalance);
-        } else {
-            BigDecimal reserve = getQuoteReserve("GLOBAL");
-            spendableQuote = usdtBalance.subtract(reserve).max(BigDecimal.ZERO);
-        }
-        
-        if (spendableQuote.compareTo(BigDecimal.ZERO) <= 0) {
-            result.put("success", true);
-            result.put("actions", actions);
-            result.put("errors", errors);
-            result.put("usdtBalance", usdtBalance.toPlainString());
-            result.put("spendableQuote", "0");
-            result.put("ordersPlaced", 0);
-            result.put("message", "USDT余额不足, 可用: " + usdtBalance);
-            return result;
-        }
-        
-        int maxOrders = getMaxOrdersPerTick("GLOBAL");
-        int ordersPlaced = takeProfitCount + rebuyCount;
-        
-        for (String symbol : symbols) {
-            if (ordersPlaced >= maxOrders) break;
-            
-            BigDecimal price = prices.get(symbol);
-            if (price == null || price.compareTo(BigDecimal.ZERO) <= 0) continue;
-            
-            Integer nextInstanceId = cycleInstanceRepository.findNextInstanceId(symbol, IS_SIMULATION);
-            
-            BigDecimal quoteToSpend = spendableQuote.divide(BigDecimal.valueOf(symbols.size()), 8, RoundingMode.DOWN);
-            if (quoteToSpend.compareTo(BigDecimal.ZERO) <= 0) continue;
-            
-            Map<String, Object> orderResult = binanceApiService.placeMarketBuyOrder(
-                    symbol, quoteToSpend.toPlainString(), apiKey, apiSecret, testnet, proxyUrl);
-            
-            if (Boolean.TRUE.equals(orderResult.get("success"))) {
-                String executedQty = (String) orderResult.get("executedQty");
-                String cummulativeQuoteQty = (String) orderResult.get("cummulativeQuoteQty");
-                
-                CycleInstance inst = CycleInstance.builder()
-                        .symbol(symbol)
-                        .instanceId(nextInstanceId)
-                        .cycleId(0)
-                        .isSimulation(IS_SIMULATION)
-                        .isOpen(true)
-                        .anchorPrice(price)
-                        .reentryPrice(BigDecimal.ZERO)
-                        .cycleStartPrice(price)
-                        .lastActionPrice(price)
-                        .baseQty(new BigDecimal(executedQty))
-                        .spentQuote(new BigDecimal(cummulativeQuoteQty))
-                        .quoteAmount(new BigDecimal(cummulativeQuoteQty))
-                        .apiAccountId(activeAccount.getId())
-                        .build();
-                
-                cycleInstanceRepository.save(inst);
-                
-                CycleOpenRecord openRecord = CycleOpenRecord.builder()
-                        .symbol(symbol)
-                        .instanceId(nextInstanceId)
-                        .cycleId(0)
-                        .isSimulation(IS_SIMULATION)
-                        .startPrice(price)
-                        .quoteAmount(new BigDecimal(cummulativeQuoteQty))
-                        .openedAtUtc(LocalDateTime.now())
-                        .apiAccountId(activeAccount.getId())
-                        .build();
-                cycleOpenRecordRepository.save(openRecord);
-                
-                recordEvent(symbol, nextInstanceId, 0, EVENT_BUY_OPEN, price, 
-                        new BigDecimal(executedQty), new BigDecimal(cummulativeQuoteQty),
-                        "real_order_id=" + orderResult.get("orderId"), IS_SIMULATION);
-                
-                actions.add(String.format("BUY_OPEN: %s instance#%d qty=%s at %s orderId=%s",
-                        symbol, nextInstanceId, executedQty, price, orderResult.get("orderId")));
-                ordersPlaced++;
-                
-                String msg = String.format("BUY_OPEN: %s instance#%d qty=%s at %s orderId=%s",
-                        symbol, nextInstanceId, executedQty, price, orderResult.get("orderId"));
-                notificationService.notifyTradeEvent("开仓 (BUY_OPEN)", symbol, msg, IS_SIMULATION);
-                
-                log.info("REAL BUY_OPEN: {} instance#{} qty={} at {} orderId={}", 
-                        symbol, nextInstanceId, executedQty, price, orderResult.get("orderId"));
-            } else {
-                List<String> orderErrors = orderResult.get("errors") != null ? 
-                        (List<String>) orderResult.get("errors") : List.of("下单失败");
-                errors.add(Map.of("symbol", symbol, "errors", orderErrors));
-                log.warn("REAL BUY_FAILED: {} errors={}", symbol, orderErrors);
-            }
-        }
-        
         result.put("success", true);
         result.put("actions", actions);
         result.put("errors", errors);
         result.put("usdtBalance", usdtBalance.toPlainString());
-        result.put("spendableQuote", spendableQuote.toPlainString());
-        result.put("ordersPlaced", ordersPlaced - takeProfitCount);
+
+        StringBuilder tickMsg = new StringBuilder("完成");
+        if (actions.isEmpty()) {
+            tickMsg.append("，本轮无交易动作");
+        } else {
+            tickMsg.append("，动作数: ").append(actions.size());
+        }
+        if (!errors.isEmpty()) {
+            tickMsg.append("（含 ").append(errors.size()).append(" 条告警）");
+        }
+        result.put("message", tickMsg.toString());
+
+        return result;
+    }
+    
+    @Transactional
+    public Map<String, Object> manualOpenPosition(String symbol, BigDecimal quoteAmount) {
+        Map<String, Object> result = new HashMap<>();
+        
+        ApiAccount activeAccount = apiAccountRepository.findByIsActiveTrue().orElse(null);
+        if (activeAccount == null) {
+            result.put("success", false);
+            result.put("errors", List.of("没有激活的API账户"));
+            return result;
+        }
+        
+        if (quoteAmount == null || quoteAmount.compareTo(BigDecimal.ZERO) <= 0) {
+            result.put("success", false);
+            result.put("errors", List.of("投入金额必须大于0"));
+            return result;
+        }
+        
+        String apiKey = activeAccount.getApiKey();
+        String apiSecret = EncryptionUtil.decrypt(activeAccount.getApiSecret());
+        boolean testnet = activeAccount.getTestnet();
+        String proxyUrl = activeAccount.getUseProxy() ? activeAccount.getProxyUrl() : "";
+        
+        BigDecimal price = priceService.getPrice(symbol);
+        if (price == null || price.compareTo(BigDecimal.ZERO) <= 0) {
+            result.put("success", false);
+            result.put("errors", List.of("无法获取市场价格"));
+            return result;
+        }
+        
+        Map<String, Object> balanceResult = binanceApiService.getAccountBalances(apiKey, apiSecret, testnet, proxyUrl);
+        if (!Boolean.TRUE.equals(balanceResult.get("success"))) {
+            result.put("success", false);
+            result.put("errors", balanceResult.get("errors") != null ? 
+                    (List<String>) balanceResult.get("errors") : List.of("无法获取账户余额"));
+            return result;
+        }
+        
+        BigDecimal usdtBalance = BigDecimal.ZERO;
+        Map<String, Object> accountData = (Map<String, Object>) balanceResult.get("account");
+        if (accountData != null && accountData.containsKey("balances")) {
+            List<Map<String, Object>> balances = (List<Map<String, Object>>) accountData.get("balances");
+            for (Map<String, Object> bal : balances) {
+                if ("USDT".equals(bal.get("asset"))) {
+                    String freeStr = (String) bal.get("free");
+                    if (freeStr != null && !freeStr.isEmpty()) {
+                        usdtBalance = new BigDecimal(freeStr);
+                    }
+                }
+            }
+        }
+        
+        if (usdtBalance.compareTo(quoteAmount) < 0) {
+            result.put("success", false);
+            result.put("errors", List.of("USDT余额不足, 可用: " + usdtBalance));
+            return result;
+        }
+        
+        Integer nextInstanceId = cycleInstanceRepository.findNextInstanceId(symbol, IS_SIMULATION);
+        
+        Map<String, Object> orderResult = binanceApiService.placeMarketBuyOrder(
+                symbol, quoteAmount.toPlainString(), apiKey, apiSecret, testnet, proxyUrl);
+        
+        if (Boolean.TRUE.equals(orderResult.get("success"))) {
+            String executedQty = (String) orderResult.get("executedQty");
+            String cummulativeQuoteQty = (String) orderResult.get("cummulativeQuoteQty");
+            
+            CycleInstance inst = CycleInstance.builder()
+                    .symbol(symbol)
+                    .instanceId(nextInstanceId)
+                    .cycleId(0)
+                    .isSimulation(IS_SIMULATION)
+                    .isOpen(true)
+                    .anchorPrice(price)
+                    .reentryPrice(BigDecimal.ZERO)
+                    .cycleStartPrice(price)
+                    .lastActionPrice(price)
+                    .baseQty(new BigDecimal(executedQty))
+                    .spentQuote(new BigDecimal(cummulativeQuoteQty))
+                    .quoteAmount(new BigDecimal(cummulativeQuoteQty))
+                    .apiAccountId(activeAccount.getId())
+                    .build();
+            
+            cycleInstanceRepository.save(inst);
+            
+            CycleOpenRecord openRecord = CycleOpenRecord.builder()
+                    .symbol(symbol)
+                    .instanceId(nextInstanceId)
+                    .cycleId(0)
+                    .isSimulation(IS_SIMULATION)
+                    .startPrice(price)
+                    .quoteAmount(new BigDecimal(cummulativeQuoteQty))
+                    .openedAtUtc(LocalDateTime.now())
+                    .apiAccountId(activeAccount.getId())
+                    .build();
+            cycleOpenRecordRepository.save(openRecord);
+            
+            recordEvent(symbol, nextInstanceId, 0, EVENT_BUY_OPEN, price, 
+                    new BigDecimal(executedQty), new BigDecimal(cummulativeQuoteQty),
+                    "real_order_id=" + orderResult.get("orderId"), IS_SIMULATION);
+            
+            String msg = String.format("手动开仓成功: %s instance#%d qty=%s at %s orderId=%s",
+                    symbol, nextInstanceId, executedQty, price, orderResult.get("orderId"));
+            notificationService.notifyTradeEvent("手动开仓 (MANUAL_OPEN)", symbol, msg, IS_SIMULATION);
+            
+            log.info("REAL MANUAL_OPEN: {} instance#{} qty={} at {} orderId={}", 
+                    symbol, nextInstanceId, executedQty, price, orderResult.get("orderId"));
+                    
+            result.put("success", true);
+            result.put("message", msg);
+        } else {
+            List<String> orderErrors = orderResult.get("errors") != null ? 
+                    (List<String>) orderResult.get("errors") : List.of("下单失败");
+            result.put("success", false);
+            result.put("errors", orderErrors);
+            log.warn("REAL MANUAL_OPEN_FAILED: {} errors={}", symbol, orderErrors);
+        }
         
         return result;
     }
@@ -409,6 +511,7 @@ public class RealTradingService {
         }
         
         String quantityStr = formatQuantity(baseBalance.toPlainString(), getStepSize(inst.getSymbol()));
+        log.info("REAL TAKE_PROFIT: sending quantity {} for {}", quantityStr, inst.getSymbol());
         
         Map<String, Object> orderResult = binanceApiService.placeMarketSellOrder(
                 inst.getSymbol(), quantityStr, apiKey, apiSecret, testnet, proxyUrl);
@@ -564,7 +667,7 @@ public class RealTradingService {
         
         try {
             log.info("Real auto tick starting for symbols: {}", DEFAULT_SYMBOLS);
-            Map<String, Object> result = executeRealTick(DEFAULT_SYMBOLS, null);
+            Map<String, Object> result = executeRealTick(DEFAULT_SYMBOLS, null, false);
             List<String> actions = (List<String>) result.get("actions");
             if (actions != null && !actions.isEmpty()) {
                 log.info("Real auto tick executed, actions: {}", actions);
