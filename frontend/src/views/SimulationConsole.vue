@@ -469,7 +469,7 @@ async function handleRealTick() {
       if (actions.length === 0) {
         saveLog(
           '真实Tick',
-          '本轮无交易动作：可能原因：① 该交易对已有真实周期记录（不会重复首买）；② 未填写投入金额（手动首买需要）；③ 止盈/止损/回补条件未触发。定时任务不会自动首买。'
+          '本轮无交易动作：可能原因：① 未填写投入金额（手动新增实例首买需要）；② 填写了金额但已达本轮下单上限或余额不足；③ 止盈/止损/回补条件未触发。填写金额时手动 Tick 会按下一 instanceId 再开一笔（与模拟多实例一致）。定时任务不会自动首买。'
         )
       }
       const errText = formatRealTickErrors(result.errors)

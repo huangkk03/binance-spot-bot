@@ -58,7 +58,7 @@ public class RealTradingService {
     private Long autoTickIntervalMs;
 
     /**
-     * @param allowInitialOpen true：手动真实 Tick 时，对该交易对尚无真实实例则按 customQuoteAmount 首买（与模拟手动 Tick 一致）；
+     * @param allowInitialOpen true：手动真实 Tick 时，对每个选中交易对按 customQuoteAmount 市价首买新实例（next instanceId，可重复，与模拟多实例一致）；
      *                         false：定时任务，绝不自动首买。
      */
     @Transactional
@@ -126,9 +126,6 @@ public class RealTradingService {
                     break;
                 }
                 if (!prices.containsKey(symbol)) {
-                    continue;
-                }
-                if (cycleInstanceRepository.countBySymbol(symbol, IS_SIMULATION) > 0) {
                     continue;
                 }
                 Map<String, Object> openRes = manualOpenPosition(symbol, customQuoteAmount);
@@ -504,13 +501,13 @@ public class RealTradingService {
             }
         }
         
-        if (baseBalance.compareTo(BigDecimal.ZERO) <= 0) {
+        if (inst.getBaseQty().compareTo(BigDecimal.ZERO) <= 0) {
             result.put("success", false);
-            result.put("errors", List.of(baseAsset + " 余额为0"));
+            result.put("errors", List.of(inst.getSymbol() + " 持仓为0"));
             return result;
         }
-        
-        String quantityStr = formatQuantity(baseBalance.toPlainString(), getStepSize(inst.getSymbol()));
+
+        String quantityStr = formatQuantity(inst.getBaseQty().toPlainString(), getStepSize(inst.getSymbol()));
         log.info("REAL TAKE_PROFIT: sending quantity {} for {}", quantityStr, inst.getSymbol());
         
         Map<String, Object> orderResult = binanceApiService.placeMarketSellOrder(
@@ -528,6 +525,8 @@ public class RealTradingService {
             inst.setLastActionPrice(new BigDecimal((String) orderResult.get("price")));
             if ("STOP_LOSS".equals(eventType)) {
                 inst.setReentryPrice(BigDecimal.ZERO);
+            } else {
+                inst.setReentryPrice(inst.getAnchorPrice());
             }
             cycleInstanceRepository.save(inst);
             
