@@ -59,6 +59,7 @@ Binance Compound Trading System 是一个基于 Vue 3 + Spring Boot 3 的加密�
 | 参数 | 说明 | 默认值 |
 |------|------|--------|
 | TAKE_PROFIT_PCT | 止盈百分比 (如 0.03 = 3%) | 0.03 |
+| STOP_LOSS_PCT | 止损百分比 (如 0.10 = 10%) | 0.10 |
 | QUOTE_RESERVE | 预留金额（不用于交易的USDT） | 10 |
 | MAX_ORDERS_PER_TICK | 每轮最大订单数 | 5 |
 
@@ -73,7 +74,10 @@ executeTick(symbols, isSimulation)
 │   └── 轮询分配，避免单一交易对过热
 ├── 4. 遍历处理每个交易对的实例
 │   ├── 未开仓 → tryOpenPosition (买入开仓)
-│   └── 已开仓 → tryTakeProfitOrRebuy (检查止盈/补仓)
+│   └── 已开仓 → tryTakeProfitOrRebuy (检查止盈/止损/补仓)
+│       ├── 价格 >= 止盈点 → executeTakeProfit (止盈卖出)
+│       ├── 价格 <= 止损点 → executeStopLoss (止损卖出)
+│       └── 价格在范围内 → 无操作
 └── 5. 更新预期余额 (updateExpectedFree)
 ```
 
@@ -181,7 +185,7 @@ profit = netQuote - spentQuote  // spentQuote已包含买入手续费
 
 ## 数据库模型
 
-系统使用 10 张数据表，详情请参考 `database-design.md`。
+系统使用 11 张数据表，详情请参考 `database-design.md`。
 
 ## 部署架构
 
@@ -210,6 +214,7 @@ profit = netQuote - spentQuote  // spentQuote已包含买入手续费
 ```yaml
 simulation:
   default-take-profit-pct: 0.03
+  default-stop-loss-pct: 0.10
   default-quote-reserve: 10
   default-max-orders-per-tick: 5
   auto-tick-enabled: true
@@ -217,6 +222,7 @@ simulation:
 
 trading:
   default-take-profit-pct: 0.03
+  default-stop-loss-pct: 0.10
   default-quote-reserve: 10
   default-max-orders-per-tick: 5
 ```
@@ -229,7 +235,11 @@ trading:
 | DB_USER | 数据库用户名 |
 | DB_PASSWORD | 数据库密码 |
 | REDIS_HOST | Redis 主机 |
+| BINANCE_API_KEY | Binance API Key（真实交易用） |
+| BINANCE_API_SECRET | Binance API Secret（真实交易用） |
+| BINANCE_PROXY | Binance API 代理地址 |
 | SPRING_PROFILES_ACTIVE | Spring 配置文件 |
+| TRADING_AUTO_TICK_ENABLED | 自动 Tick 开关 |
 
 ## 故障排查
 

@@ -2,7 +2,7 @@
 
 ## 概述
 
-本系统使用 MySQL 5.6 数据库，共 10 张数据表，采用 JPA (Hibernate) 作为 ORM 框架。
+本系统使用 MySQL 5.6 数据库，共 11 张数据表，采用 JPA (Hibernate) 作为 ORM 框架。
 
 ## ER 图
 

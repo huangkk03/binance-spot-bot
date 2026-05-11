@@ -29,6 +29,9 @@ export const useCompoundStore = defineStore('compound', () => {
         const msg = JSON.parse(event.data)
         if (msg.type === 'PRICE_UPDATE') {
           prices.value[msg.data.symbol] = msg.data.price
+        } else if (msg.type === 'INSTANCE_UPDATE') {
+          console.log('Instance update received:', msg.data)
+          fetchInstances()
         }
       } catch (e) {
         console.error('Failed to parse WS message', e)

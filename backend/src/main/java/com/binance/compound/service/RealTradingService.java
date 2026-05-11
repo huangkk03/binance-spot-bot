@@ -4,12 +4,15 @@ import com.binance.compound.entity.ApiAccount;
 import com.binance.compound.entity.CycleInstance;
 import com.binance.compound.entity.CycleOpenRecord;
 import com.binance.compound.entity.InstanceEvent;
+import com.binance.compound.entity.TradeRecord;
 import com.binance.compound.repository.ApiAccountRepository;
 import com.binance.compound.repository.CycleInstanceRepository;
 import com.binance.compound.repository.CycleOpenRecordRepository;
 import com.binance.compound.repository.InstanceEventRepository;
 import com.binance.compound.repository.StrategyConfigRepository;
+import com.binance.compound.repository.TradeRecordRepository;
 import com.binance.compound.util.EncryptionUtil;
+import com.binance.compound.websocket.FrontendWebSocketHandler;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -31,9 +34,11 @@ public class RealTradingService {
     private final CycleOpenRecordRepository cycleOpenRecordRepository;
     private final InstanceEventRepository instanceEventRepository;
     private final StrategyConfigRepository strategyConfigRepository;
+    private final TradeRecordRepository tradeRecordRepository;
     private final BinanceApiService binanceApiService;
     private final PriceService priceService;
     private final NotificationService notificationService;
+    private final FrontendWebSocketHandler frontendWebSocketHandler;
     
     private static final String EVENT_BUY_OPEN = "BUY_OPEN";
     private static final String EVENT_TAKE_PROFIT = "TAKE_PROFIT";
@@ -176,10 +181,15 @@ public class RealTradingService {
         // Also get closed instances that are waiting for reentry
         List<CycleInstance> closedInstances = cycleInstanceRepository
                 .findBySymbolInAndIsSimulationAndIsOpenFalse(symbols, IS_SIMULATION);
-        
+
+        log.info("REAL TICK closedInstances count: {}, symbols: {}", closedInstances.size(), symbols);
         for (CycleInstance inst : closedInstances) {
+            log.info("REAL TICK closed instance: symbol={}, id={}, isOpen={}, reentryPrice={}, anchorPrice={}, cycleStartPrice={}",
+                    inst.getSymbol(), inst.getInstanceId(), inst.getIsOpen(),
+                    inst.getReentryPrice(), inst.getAnchorPrice(), inst.getCycleStartPrice());
             if (inst.getReentryPrice() != null && inst.getReentryPrice().compareTo(BigDecimal.ZERO) > 0) {
                 allInstances.add(inst);
+                log.info("REAL TICK added to allInstances for rebuy: symbol={}, id={}", inst.getSymbol(), inst.getInstanceId());
             }
         }
         
@@ -220,8 +230,13 @@ public class RealTradingService {
                     }
                 }
             } else {
-                // Closed instance waiting for reentry
-                if (price.compareTo(inst.getReentryPrice()) <= 0) {
+                // Closed instance waiting for reentry - only buy when price <= reentryPrice (anchor price)
+                BigDecimal reentryThreshold = inst.getReentryPrice();
+                log.info("REAL TICK reentry check: symbol={}, price={}, reentryThreshold={}",
+                        inst.getSymbol(), price, reentryThreshold);
+                if (price.compareTo(reentryThreshold) > 0) {
+                    // 价格高于锚定价，等待
+                } else {
                     Map<String, Object> rebuyResult = executeRebuyCompound(inst, price, activeAccount, usdtBalance);
                     if (Boolean.TRUE.equals(rebuyResult.get("success"))) {
                         actions.add((String) rebuyResult.get("message"));
@@ -312,9 +327,12 @@ public class RealTradingService {
         }
         
         Integer nextInstanceId = cycleInstanceRepository.findNextInstanceId(symbol, IS_SIMULATION);
-        
+
+        BigDecimal quantizedQuoteAmount = quantizeQuoteAmount(quoteAmount, symbol);
+        log.info("REAL manualOpenPosition: symbol={}, quoteAmount={}, quantizedQuoteAmount={}", symbol, quoteAmount, quantizedQuoteAmount);
+
         Map<String, Object> orderResult = binanceApiService.placeMarketBuyOrder(
-                symbol, quoteAmount.toPlainString(), apiKey, apiSecret, testnet, proxyUrl);
+                symbol, quantizedQuoteAmount.toPlainString(), apiKey, apiSecret, testnet, proxyUrl);
         
         if (Boolean.TRUE.equals(orderResult.get("success"))) {
             String executedQty = (String) orderResult.get("executedQty");
@@ -350,17 +368,26 @@ public class RealTradingService {
                     .build();
             cycleOpenRecordRepository.save(openRecord);
             
-            recordEvent(symbol, nextInstanceId, 0, EVENT_BUY_OPEN, price, 
+            recordEvent(symbol, nextInstanceId, 0, EVENT_BUY_OPEN, price,
                     new BigDecimal(executedQty), new BigDecimal(cummulativeQuoteQty),
                     "real_order_id=" + orderResult.get("orderId"), IS_SIMULATION);
-            
+
+            saveTradeRecord(orderResult, symbol, "BUY", price, IS_SIMULATION);
+
             String msg = String.format("手动开仓成功: %s instance#%d qty=%s at %s orderId=%s",
                     symbol, nextInstanceId, executedQty, price, orderResult.get("orderId"));
             notificationService.notifyTradeEvent("手动开仓 (MANUAL_OPEN)", symbol, msg, IS_SIMULATION);
-            
-            log.info("REAL MANUAL_OPEN: {} instance#{} qty={} at {} orderId={}", 
+
+            log.info("REAL MANUAL_OPEN: {} instance#{} qty={} at {} orderId={}",
                     symbol, nextInstanceId, executedQty, price, orderResult.get("orderId"));
-                    
+
+            frontendWebSocketHandler.broadcast("INSTANCE_UPDATE", Map.of(
+                    "action", "BUY_OPEN",
+                    "symbol", symbol,
+                    "instanceId", nextInstanceId,
+                    "isSimulation", IS_SIMULATION
+            ));
+
             result.put("success", true);
             result.put("message", msg);
         } else {
@@ -425,7 +452,20 @@ public class RealTradingService {
                         .filter(Objects::nonNull)
                         .orElse(defaultQuoteReserve));
     }
-    
+
+    private BigDecimal quantizeQuoteAmount(BigDecimal quoteAmount, String symbol) {
+        try {
+            int stepSize = binanceApiService.getStepSize(symbol);
+            if (stepSize <= 0) {
+                stepSize = 8;
+            }
+            return quoteAmount.setScale(stepSize, RoundingMode.DOWN);
+        } catch (Exception e) {
+            log.warn("quantizeQuoteAmount failed for {}: {}", symbol, e.getMessage());
+            return quoteAmount.setScale(8, RoundingMode.DOWN);
+        }
+    }
+
     private Integer getMaxOrdersPerTick(String symbol) {
         return strategyConfigRepository.findByConfigKeyAndIsSimulation("MAX_ORDERS_PER_TICK_" + symbol, IS_SIMULATION)
                 .map(c -> parseInteger(c.getConfigValue()))
@@ -507,43 +547,129 @@ public class RealTradingService {
             return result;
         }
 
-        String quantityStr = formatQuantity(inst.getBaseQty().toPlainString(), getStepSize(inst.getSymbol()));
+        if (baseBalance.compareTo(BigDecimal.ZERO) <= 0) {
+            result.put("success", false);
+            result.put("errors", List.of(inst.getSymbol() + " Binance实际持仓为0，拒绝卖单"));
+            notificationService.sendNotification(
+                    "【警告】真实交易拒绝卖单",
+                    "symbol=" + inst.getSymbol() +
+                    ", instanceId=" + inst.getInstanceId() +
+                    ", 数据库持仓=" + inst.getBaseQty() +
+                    ", Binance实际持仓=0" +
+                    ", 请人工检查！");
+            return result;
+        }
+
+        BigDecimal quantityToSell = inst.getBaseQty().min(baseBalance);
+        String quantityStr = formatQuantity(quantityToSell.toPlainString(), getStepSize(inst.getSymbol()));
+        log.info("REAL TAKE_PROFIT: DB qty={}, Binance balance={}, selling={}", inst.getBaseQty(), baseBalance, quantityStr);
         log.info("REAL TAKE_PROFIT: sending quantity {} for {}", quantityStr, inst.getSymbol());
         
         Map<String, Object> orderResult = binanceApiService.placeMarketSellOrder(
                 inst.getSymbol(), quantityStr, apiKey, apiSecret, testnet, proxyUrl);
         
         if (Boolean.TRUE.equals(orderResult.get("success"))) {
-            String executedQty = (String) orderResult.get("executedQty");
-            String cummulativeQuoteQty = (String) orderResult.get("cummulativeQuoteQty");
-            BigDecimal netQuote = new BigDecimal(cummulativeQuoteQty);
-            BigDecimal buyFee = inst.getSpentQuote().multiply(new BigDecimal("0.001"));
-            BigDecimal profit = netQuote.subtract(inst.getSpentQuote()).subtract(buyFee);
-            
-            inst.setIsOpen(false);
-            inst.setBaseQty(BigDecimal.ZERO);
-            inst.setLastActionPrice(new BigDecimal((String) orderResult.get("price")));
-            if ("STOP_LOSS".equals(eventType)) {
-                inst.setReentryPrice(BigDecimal.ZERO);
-            } else {
-                inst.setReentryPrice(inst.getAnchorPrice());
+            String executedQtyStr = (String) orderResult.get("executedQty");
+            String cumQuoteQtyStr = (String) orderResult.get("cummulativeQuoteQty");
+            String priceStr = (String) orderResult.get("price");
+            String orderId = (String) orderResult.get("orderId");
+
+            if (executedQtyStr == null || executedQtyStr.isEmpty() ||
+                cumQuoteQtyStr == null || cumQuoteQtyStr.isEmpty()) {
+                log.error("【严重】Binance返回数据异常，跳过此订单");
+                result.put("success", false);
+                result.put("errors", List.of("Binance返回数据异常"));
+                return result;
             }
-            cycleInstanceRepository.save(inst);
-            
-            recordEvent(inst.getSymbol(), inst.getInstanceId(), inst.getCycleId(), eventType,
-                    new BigDecimal((String) orderResult.get("price")),
-                    new BigDecimal(executedQty), netQuote,
-                    "profit=" + profit + " buyFee=" + buyFee + " real_order_id=" + orderResult.get("orderId"), false);
-            
-            result.put("success", true);
-            result.put("profit", profit.toPlainString());
-            result.put("orderId", orderResult.get("orderId"));
-            String msg = String.format("平仓成功(%s): %s 盈利=%s (扣买入手续费%s)", eventType, inst.getSymbol(), profit, buyFee);
-            result.put("message", msg);
-            
-            notificationService.notifyTradeEvent("TAKE_PROFIT".equals(eventType) ? "止盈 (TAKE_PROFIT)" : "止损 (STOP_LOSS)", inst.getSymbol(), msg, IS_SIMULATION);
-            
-            log.info("REAL {}: {} profit={} buyFee={} orderId={}", eventType, inst.getSymbol(), profit, buyFee, orderResult.get("orderId"));
+
+            if (orderId == null || orderId.isEmpty()) orderId = "UNKNOWN";
+
+            try {
+                BigDecimal executedQty = new BigDecimal(executedQtyStr);
+                BigDecimal cumQuoteQty = new BigDecimal(cumQuoteQtyStr);
+                BigDecimal lastPrice;
+                if (priceStr != null && !priceStr.isEmpty() && !priceStr.equals("0") && !priceStr.equals("0.0")) {
+                    lastPrice = new BigDecimal(priceStr);
+                    log.info("止盈价格来自Binance direct price: {}", lastPrice);
+                } else if (orderResult.containsKey("fills") && !((List<?>) orderResult.get("fills")).isEmpty()) {
+                    List<Map<String, String>> fills = (List<Map<String, String>>) orderResult.get("fills");
+                    log.info("从fills计算价格: fills size={}", fills.size());
+                    BigDecimal totalQty = BigDecimal.ZERO;
+                    BigDecimal totalQuote = BigDecimal.ZERO;
+                    for (Map<String, String> fill : fills) {
+                        String qtyStr = fill.getOrDefault("qty", "0");
+                        String priceFillStr = fill.getOrDefault("price", "0");
+                        if (qtyStr.isEmpty()) qtyStr = "0";
+                        if (priceFillStr.isEmpty()) priceFillStr = "0";
+                        BigDecimal qty = new BigDecimal(qtyStr);
+                        BigDecimal priceFill = new BigDecimal(priceFillStr);
+                        log.info("fill: qty={}, price={}", qty, priceFill);
+                        totalQty = totalQty.add(qty);
+                        totalQuote = totalQuote.add(qty.multiply(priceFill));
+                    }
+                    if (totalQty.compareTo(BigDecimal.ZERO) > 0) {
+                        lastPrice = totalQuote.divide(totalQty, 8, RoundingMode.DOWN);
+                        log.info("从fills计算得出lastPrice={}", lastPrice);
+                    } else {
+                        lastPrice = inst.getAnchorPrice();
+                        log.warn("无法从fills计算价格，使用anchorPrice: {}", lastPrice);
+                    }
+                } else {
+                    lastPrice = inst.getAnchorPrice();
+                    log.warn("price为空且无fills，使用anchorPrice: {}", lastPrice);
+                }
+
+                BigDecimal sellFee = cumQuoteQty.multiply(new BigDecimal("0.001"));
+                BigDecimal netQuote = cumQuoteQty.subtract(sellFee);
+                BigDecimal profit = netQuote.subtract(inst.getSpentQuote());
+
+                inst.setIsOpen(false);
+                inst.setBaseQty(BigDecimal.ZERO);
+                inst.setSpentQuote(BigDecimal.ZERO);
+                inst.setQuoteAmount(netQuote);
+                // 保留 cycleStartPrice 以便追溯（不清零）
+                inst.setLastActionPrice(lastPrice);
+                inst.setReentryPrice("STOP_LOSS".equals(eventType) ? BigDecimal.ZERO : inst.getAnchorPrice());
+
+                log.info("REAL {}: symbol={}, instanceId={}, orderId={}, profit={}",
+                        eventType, inst.getSymbol(), inst.getInstanceId(), orderId, profit);
+
+                cycleInstanceRepository.save(inst);
+
+                recordEvent(inst.getSymbol(), inst.getInstanceId(), inst.getCycleId(), eventType,
+                        lastPrice, executedQty, netQuote,
+                        "profit=" + profit + " sellFee=" + sellFee + " real_order_id=" + orderId, false);
+
+                saveTradeRecord(orderResult, inst.getSymbol(), "SELL", lastPrice, IS_SIMULATION);
+
+                result.put("success", true);
+                result.put("profit", profit.toPlainString());
+                result.put("orderId", orderId);
+                String msg = String.format("平仓成功(%s): %s 盈利=%s", eventType, inst.getSymbol(), profit);
+                result.put("message", msg);
+
+                notificationService.notifyTradeEvent(
+                        "TAKE_PROFIT".equals(eventType) ? "止盈 (TAKE_PROFIT)" : "止损 (STOP_LOSS)",
+                        inst.getSymbol(), msg, IS_SIMULATION);
+
+                frontendWebSocketHandler.broadcast("INSTANCE_UPDATE", Map.of(
+                        "action", eventType,
+                        "symbol", inst.getSymbol(),
+                        "instanceId", inst.getInstanceId(),
+                        "isSimulation", IS_SIMULATION
+                ));
+
+            } catch (Exception e) {
+                log.error("【严重】平仓处理异常：symbol={}, orderId={}, error={}",
+                        inst.getSymbol(), orderId, e.getMessage(), e);
+                notificationService.sendNotification(
+                        "【严重】真实交易平仓处理异常",
+                        "请立即检查！\n\nsymbol=" + inst.getSymbol() +
+                        ", orderId=" + orderId +
+                        ", 错误: " + e.getMessage());
+                result.put("success", false);
+                result.put("errors", List.of("平仓处理异常: " + e.getMessage()));
+            }
         } else {
             result.put("success", false);
             result.put("errors", orderResult.get("errors") != null ? 
@@ -555,26 +681,33 @@ public class RealTradingService {
     
     private Map<String, Object> executeRebuyCompound(CycleInstance inst, BigDecimal price, ApiAccount activeAccount, BigDecimal currentUsdtBalance) {
         Map<String, Object> result = new HashMap<>();
-        
+
         BigDecimal reserve = getQuoteReserve(inst.getSymbol());
         BigDecimal spendableQuote = currentUsdtBalance.subtract(reserve).max(BigDecimal.ZERO);
-        
+
         BigDecimal quoteToSpend = inst.getQuoteAmount().min(spendableQuote);
-        
-        if (quoteToSpend.compareTo(BigDecimal.ZERO) <= 0) {
+        BigDecimal quantizedQuoteToSpend = quantizeQuoteAmount(quoteToSpend, inst.getSymbol());
+
+        log.info("REAL executeRebuyCompound: symbol={}, quoteAmount={}, usdtBalance={}, reserve={}, spendableQuote={}, quoteToSpend={}, quantizedQuoteToSpend={}",
+                inst.getSymbol(), inst.getQuoteAmount(), currentUsdtBalance, reserve, spendableQuote, quoteToSpend, quantizedQuoteToSpend);
+
+        if (quantizedQuoteToSpend.compareTo(BigDecimal.ZERO) <= 0) {
             result.put("success", false);
             result.put("errors", List.of("可用USDT不足以复利买入"));
             return result;
         }
-        
+
         String apiKey = activeAccount.getApiKey();
         String apiSecret = EncryptionUtil.decrypt(activeAccount.getApiSecret());
         boolean testnet = activeAccount.getTestnet();
         String proxyUrl = activeAccount.getUseProxy() ? activeAccount.getProxyUrl() : "";
-        
+
         Map<String, Object> orderResult = binanceApiService.placeMarketBuyOrder(
-                inst.getSymbol(), quoteToSpend.toPlainString(), apiKey, apiSecret, testnet, proxyUrl);
-                
+                inst.getSymbol(), quantizedQuoteToSpend.toPlainString(), apiKey, apiSecret, testnet, proxyUrl);
+
+        log.info("REAL Rebuy order result: symbol={}, success={}, orderId={}, errors={}",
+                inst.getSymbol(), orderResult.get("success"), orderResult.get("orderId"), orderResult.get("errors"));
+
         if (Boolean.TRUE.equals(orderResult.get("success"))) {
             String executedQty = (String) orderResult.get("executedQty");
             String cummulativeQuoteQty = (String) orderResult.get("cummulativeQuoteQty");
@@ -606,14 +739,23 @@ public class RealTradingService {
             recordEvent(inst.getSymbol(), inst.getInstanceId(), inst.getCycleId(), "REBUY_COMPOUND",
                     price, new BigDecimal(executedQty), actualSpent,
                     "real_order_id=" + orderResult.get("orderId"), IS_SIMULATION);
-            
+
+            saveTradeRecord(orderResult, inst.getSymbol(), "BUY", price, IS_SIMULATION);
+
             result.put("success", true);
             result.put("spentQuote", cummulativeQuoteQty);
             String msg = String.format("REBUY_COMPOUND: %s instance#%d cycle=%d qty=%s at %s",
                     inst.getSymbol(), inst.getInstanceId(), inst.getCycleId(), executedQty, price);
             result.put("message", msg);
-            
+
             notificationService.notifyTradeEvent("复利买入 (REBUY_COMPOUND)", inst.getSymbol(), msg, IS_SIMULATION);
+
+            frontendWebSocketHandler.broadcast("INSTANCE_UPDATE", Map.of(
+                    "action", "REBUY_COMPOUND",
+                    "symbol", inst.getSymbol(),
+                    "instanceId", inst.getInstanceId(),
+                    "isSimulation", IS_SIMULATION
+            ));
         } else {
             result.put("success", false);
             result.put("errors", orderResult.get("errors") != null ? 
@@ -638,6 +780,47 @@ public class RealTradingService {
                 .note(note)
                 .build();
         instanceEventRepository.save(e);
+    }
+
+    private void saveTradeRecord(Map<String, Object> orderResult, String symbol, String side, BigDecimal price, Boolean isSimulation) {
+        try {
+            String executedQtyStr = (String) orderResult.get("executedQty");
+            String cumQuoteStr = (String) orderResult.get("cummulativeQuoteQty");
+            String orderId = (String) orderResult.get("orderId");
+
+            if (executedQtyStr == null || executedQtyStr.isEmpty()) {
+                log.warn("saveTradeRecord: executedQty is null or empty, skipping");
+                return;
+            }
+            if (cumQuoteStr == null || cumQuoteStr.isEmpty()) {
+                log.warn("saveTradeRecord: cummulativeQuoteQty is null or empty, skipping");
+                return;
+            }
+            if (orderId == null) {
+                orderId = "UNKNOWN";
+            }
+
+            String payloadJson = "";
+            if (orderResult.containsKey("payloadJson") && orderResult.get("payloadJson") != null) {
+                payloadJson = orderResult.get("payloadJson").toString();
+            }
+            TradeRecord tradeRecord = TradeRecord.builder()
+                    .orderId(orderId)
+                    .symbol(symbol)
+                    .side(side)
+                    .status((String) orderResult.get("status"))
+                    .isSimulation(isSimulation)
+                    .executedQty(new BigDecimal(executedQtyStr))
+                    .cummulativeQuoteQty(new BigDecimal(cumQuoteStr))
+                    .avgPrice(price)
+                    .payloadJson(payloadJson)
+                    .build();
+            tradeRecordRepository.save(tradeRecord);
+            log.info("TradeRecord saved: symbol={}, side={}, orderId={}", symbol, side, orderId);
+        } catch (Exception e) {
+            log.error("Failed to save TradeRecord: symbol={}, orderId={}, error={}",
+                    symbol, orderResult.get("orderId"), e.getMessage(), e);
+        }
     }
     
     private String formatQuantity(String qty, int stepSize) {

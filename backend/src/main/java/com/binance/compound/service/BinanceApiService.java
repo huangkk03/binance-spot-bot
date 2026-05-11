@@ -269,6 +269,8 @@ public class BinanceApiService {
                 result.put("cummulativeQuoteQty", parseJsonField(response.body(), "cummulativeQuoteQty"));
                 result.put("status", parseJsonField(response.body(), "status"));
                 result.put("transactTime", parseJsonField(response.body(), "transactTime"));
+                result.put("price", parseJsonField(response.body(), "price"));
+                result.put("fills", parseJsonArray(response.body(), "fills"));
             } else {
                 String errorBody = response.body();
                 if (errorBody.contains("Invalid API Key")) {
@@ -420,6 +422,27 @@ public class BinanceApiService {
             log.warn("Failed to parse field {} from json: {}", fieldName, e.getMessage());
         }
         return "";
+    }
+
+    private List<Map<String, String>> parseJsonArray(String json, String fieldName) {
+        List<Map<String, String>> result = new ArrayList<>();
+        try {
+            var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+            var node = mapper.readTree(json);
+            if (node.has(fieldName) && node.get(fieldName).isArray()) {
+                for (var fillNode : node.get(fieldName)) {
+                    Map<String, String> fill = new HashMap<>();
+                    fill.put("price", fillNode.has("price") ? fillNode.get("price").asText() : "");
+                    fill.put("qty", fillNode.has("qty") ? fillNode.get("qty").asText() : "");
+                    fill.put("commission", fillNode.has("commission") ? fillNode.get("commission").asText() : "");
+                    fill.put("commissionAsset", fillNode.has("commissionAsset") ? fillNode.get("commissionAsset").asText() : "");
+                    result.add(fill);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to parse array field {} from json: {}", fieldName, e.getMessage());
+        }
+        return result;
     }
     
     private String extractFilterFailure(String json) {
