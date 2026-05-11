@@ -10,7 +10,7 @@ services:
     ports:
       - "13306:3306"
     volumes:
-      - mysql_data:/var/lib/mysql
+      - ./data/mysql:/var/lib/mysql
       - ./backend/src/main/resources/DB_SCHEMA.sql:/docker-entrypoint-initdb.d/DB_SCHEMA.sql:ro
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
@@ -69,9 +69,6 @@ services:
     networks:
       - compound-network
     restart: unless-stopped
-
-volumes:
-  mysql_data:
 
 networks:
   compound-network:

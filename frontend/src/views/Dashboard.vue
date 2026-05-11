@@ -111,9 +111,11 @@
             </span>
           </template>
         </el-table-column>
-        <el-table-column prop="uPnLPct" label="盈亏%" width="80">
+        <el-table-column prop="uPnLPct" label="盈亏%" width="100">
           <template #default="{ row }">
-            <span :class="row.uPnL >= 0 ? 'positive' : 'negative'">{{ row.uPnLPct }}%</span>
+            <span :class="Number(row.uPnLPct) >= 0 ? 'positive' : 'negative'">
+              {{ Number(row.uPnLPct) >= 0 ? '+' : '' }}{{ row.uPnLPct }}
+            </span>
           </template>
         </el-table-column>
         <el-table-column prop="roi" label="收益率" width="90">
@@ -176,13 +178,20 @@ const instanceDetails = computed(() => {
     const anchorPrice = Number(inst.anchorPrice) || 0
     const cycleStartPrice = Number(inst.cycleStartPrice) || 0
     const baseQty = Number(inst.baseQty) || 0
+    const spentQuote = Number(inst.spentQuote) || 0
     const quoteAmount = Number(inst.quoteAmount) || 0
-    
+
     const equity = inst.isOpen ? baseQty * currentPrice : quoteAmount
-    const uPnL = inst.isOpen ? (currentPrice - cycleStartPrice) * baseQty : 0
-    const uPnLPct = cycleStartPrice > 0 ? ((currentPrice - cycleStartPrice) / cycleStartPrice * 100).toFixed(2) : '0.00'
+    // 未实现盈亏：持仓波动 USDT（扣除预估0.1%卖出手续费）
+    const uPnL = inst.isOpen && cycleStartPrice > 0
+        ? spentQuote * (currentPrice - cycleStartPrice) / cycleStartPrice / 100 * (1 - 0.001)
+        : 0
+    // 盈亏%：已平仓时显示止盈/止损 USDT 金额（扣除0.1%卖出手续费），持仓中显示锚定价收益 USDT
+    const uPnLPct = inst.isOpen
+        ? (anchorPrice > 0 ? (spentQuote * (currentPrice - anchorPrice) / anchorPrice / 100).toFixed(2) : '0.00')
+        : (quoteAmount - spentQuote - quoteAmount * 0.001).toFixed(2)
     const roi = anchorPrice > 0 ? ((currentPrice - anchorPrice) / anchorPrice * 100).toFixed(2) : '0.00'
-    
+
     return {
       ...inst,
       symbolId: `${inst.symbol}#${inst.instanceId}`,

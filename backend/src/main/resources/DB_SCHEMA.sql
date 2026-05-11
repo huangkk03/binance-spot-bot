@@ -176,6 +176,7 @@ CREATE TABLE IF NOT EXISTS price_alerts (
     triggered TINYINT(1) NOT NULL DEFAULT 0 COMMENT '1=triggered, 0=not triggered',
     message VARCHAR(500) DEFAULT '' COMMENT 'Alert message',
     created_at_utc DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_notified_at DATETIME DEFAULT NULL COMMENT 'Last notification time for cooldown',
     
     INDEX idx_symbol_interval_alert (symbol, kline_interval, alert_type),
     INDEX idx_created_at (created_at_utc)

@@ -1,0 +1,23 @@
+# MySQL data
+data/mysql/
+
+# Docker volumes (if any)
+# docker-compose.override.yml
+
+# Environment files (contains secrets)
+.env
+
+# IDE
+.idea/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Build artifacts
+backend/target/
+frontend/node_modules/

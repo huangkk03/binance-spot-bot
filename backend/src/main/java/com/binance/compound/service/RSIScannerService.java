@@ -15,8 +15,10 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 @Slf4j
 @Service
@@ -33,6 +35,13 @@ public class RSIScannerService {
     
     private static final String[] SYMBOLS = {"BTCUSDT", "ETHUSDT", "BNBUSDT", "ADAUSDT", "DOGEUSDT", "SOLUSDT"};
     private static final String[] INTERVALS = {"15m", "1h", "4h", "1d"};
+    
+    private static final Map<String, Long> COOLDOWN_MINUTES = Map.of(
+            "15m", 15L,
+            "1h", 60L,
+            "4h", 240L,
+            "1d", 1440L
+    );
     
     @Scheduled(fixedRate = 60000)
     public void scanRSIIndicators() {
@@ -92,12 +101,13 @@ public class RSIScannerService {
         }
     }
 
-    private void handleAlert(String symbol, String interval, String alertType, BigDecimal rsi, 
+    private void handleAlert(String symbol, String interval, String alertType, BigDecimal rsi,
             BigDecimal currentPrice, PriceAlert existing, BigDecimal threshold) {
-        
+
         boolean isNew = existing == null;
         PriceAlert alert;
         String baseMessage = buildMessage(symbol, interval, alertType, rsi, currentPrice, threshold);
+        long cooldownMinutes = COOLDOWN_MINUTES.getOrDefault(interval, 60L);
 
         if (isNew) {
             alert = PriceAlert.builder()
@@ -108,9 +118,10 @@ public class RSIScannerService {
                     .currentPrice(currentPrice)
                     .triggerPrice(currentPrice)
                     .triggered(true)
+                    .lastNotifiedAt(LocalDateTime.now())
                     .message(baseMessage)
                     .build();
-            
+
             appendAiAnalysisIfNeeded(alert, symbol, interval, alertType, rsi);
             priceAlertRepository.save(alert);
             notificationService.sendNotification("RSI ALERT: " + symbol + " " + interval, alert.getMessage());
@@ -118,15 +129,28 @@ public class RSIScannerService {
         } else {
             alert = existing;
             alert.setCurrentPrice(currentPrice);
-            if (!alert.getTriggered()) {
+
+            // 检查冷却期
+            LocalDateTime lastNotified = alert.getLastNotifiedAt();
+            boolean inCooldown = lastNotified != null &&
+                    LocalDateTime.now().isBefore(lastNotified.plusMinutes(cooldownMinutes));
+
+            if (inCooldown) {
+                // 在冷却期内，只更新价格，不发送通知
+                priceAlertRepository.save(alert);
+                log.debug("RSI ALERT in cooldown: {} {} {} cooldown={}min", symbol, interval, alertType, cooldownMinutes);
+            } else if (!alert.getTriggered()) {
                 alert.setTriggered(true);
                 alert.setTriggerPrice(currentPrice);
+                alert.setLastNotifiedAt(LocalDateTime.now());
                 alert.setMessage(baseMessage);
                 appendAiAnalysisIfNeeded(alert, symbol, interval, alertType, rsi);
                 notificationService.sendNotification("RSI ALERT: " + symbol + " " + interval, alert.getMessage());
                 log.warn("RSI ALERT TRIGGERED: {} {} {} rsi={} price={}", symbol, interval, alertType, rsi, currentPrice);
+                priceAlertRepository.save(alert);
+            } else {
+                priceAlertRepository.save(alert);
             }
-            priceAlertRepository.save(alert);
         }
     }
 
