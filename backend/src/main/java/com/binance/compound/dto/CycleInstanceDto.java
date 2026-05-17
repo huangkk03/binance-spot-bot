@@ -21,6 +21,7 @@ public class CycleInstanceDto {
     private BigDecimal baseQty;
     private BigDecimal spentQuote;
     private BigDecimal quoteAmount;
+    private BigDecimal cumulativeProfit;
     private LocalDateTime updatedAtUtc;
     private LocalDateTime createdAtUtc;
 }

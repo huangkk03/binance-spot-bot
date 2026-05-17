@@ -345,6 +345,7 @@ public class SimulationEngine {
         inst.setLastActionPrice(price);
         inst.setReentryPrice(BigDecimal.ZERO); // Reset reentry on stop loss
         inst.setCycleId(inst.getCycleId() + 1);
+        inst.setCumulativeProfit(inst.getCumulativeProfit().add(profit));
         
         cycleInstanceRepository.save(inst);
         
@@ -390,6 +391,7 @@ public class SimulationEngine {
         inst.setBaseQty(BigDecimal.ZERO);
         inst.setSpentQuote(BigDecimal.ZERO);
         inst.setQuoteAmount(netQuote);
+        inst.setCumulativeProfit(inst.getCumulativeProfit().add(profit));
         inst.setCycleStartPrice(BigDecimal.ZERO);
         inst.setLastActionPrice(price);
         inst.setReentryPrice(inst.getAnchorPrice());
@@ -623,6 +625,7 @@ public class SimulationEngine {
                 .baseQty(entity.getBaseQty())
                 .spentQuote(entity.getSpentQuote())
                 .quoteAmount(entity.getQuoteAmount())
+                .cumulativeProfit(entity.getCumulativeProfit())
                 .updatedAtUtc(entity.getUpdatedAtUtc())
                 .createdAtUtc(entity.getCreatedAtUtc())
                 .build();

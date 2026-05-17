@@ -45,15 +45,17 @@ public class RSIScannerService {
     
     @Scheduled(fixedRate = 60000)
     public void scanRSIIndicators() {
+        log.info("RSI scan starting...");
         for (String symbol : SYMBOLS) {
             for (String interval : INTERVALS) {
                 try {
                     scanSymbolInterval(symbol, interval);
                 } catch (Exception e) {
-                    log.error("Error scanning RSI for {} {}: {}", symbol, interval, e.getMessage());
+                    log.error("Error scanning RSI for {} {}: {}", symbol, interval, e.getMessage(), e);
                 }
             }
         }
+        log.info("RSI scan completed.");
     }
 
     private BigDecimal getThreshold(String symbol, String type, String defaultValue) {
@@ -66,7 +68,9 @@ public class RSIScannerService {
 
     @Transactional
     public void scanSymbolInterval(String symbol, String interval) {
+        log.debug("Scanning RSI for {} {}", symbol, interval);
         List<KlineBar> klines = fetchKlines(symbol, interval, 100);
+        log.debug("Fetched {} klines for {} {}", klines != null ? klines.size() : 0, symbol, interval);
         
         int rsiPeriod = getThreshold(symbol, "PERIOD", "14").intValue();
         if (klines == null || klines.size() < rsiPeriod + 1) {
@@ -75,6 +79,7 @@ public class RSIScannerService {
         
         BigDecimal rsi = calculateRSI(klines, rsiPeriod);
         if (rsi == null) return;
+        log.info("RSI for {} {} = {}", symbol, interval, rsi);
 
         BigDecimal currentPrice = klines.get(klines.size() - 1).close;
         
@@ -85,6 +90,8 @@ public class RSIScannerService {
 
         BigDecimal overboughtThreshold = getThreshold(symbol, "OVERBOUGHT", "80");
         BigDecimal oversoldThreshold = getThreshold(symbol, "OVERSOLD", "20");
+        log.info("RSI check for {} {}: rsi={}, overboughtThreshold={}, oversoldThreshold={}", 
+                symbol, interval, rsi, overboughtThreshold, oversoldThreshold);
 
         if (rsi.compareTo(overboughtThreshold) >= 0) {
             handleAlert(symbol, interval, "RSI_OVERBOUGHT", rsi, currentPrice, existingOverbought, overboughtThreshold);

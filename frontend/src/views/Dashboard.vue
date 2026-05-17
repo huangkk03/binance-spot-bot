@@ -111,7 +111,7 @@
             </span>
           </template>
         </el-table-column>
-        <el-table-column prop="uPnLPct" label="盈亏%" width="100">
+        <el-table-column prop="uPnLPct" label="盈亏/USDT" width="100">
           <template #default="{ row }">
             <span :class="Number(row.uPnLPct) >= 0 ? 'positive' : 'negative'">
               {{ Number(row.uPnLPct) >= 0 ? '+' : '' }}{{ row.uPnLPct }}
@@ -180,16 +180,13 @@ const instanceDetails = computed(() => {
     const baseQty = Number(inst.baseQty) || 0
     const spentQuote = Number(inst.spentQuote) || 0
     const quoteAmount = Number(inst.quoteAmount) || 0
+    const cumulativeProfit = Number(inst.cumulativeProfit) || 0
 
-    const equity = inst.isOpen ? baseQty * currentPrice : quoteAmount
-    // 未实现盈亏：持仓波动 USDT（扣除预估0.1%卖出手续费）
+    const equity = inst.isOpen ? baseQty * currentPrice : 0
     const uPnL = inst.isOpen && cycleStartPrice > 0
-        ? spentQuote * (currentPrice - cycleStartPrice) / cycleStartPrice / 100 * (1 - 0.001)
+        ? spentQuote * (currentPrice - cycleStartPrice) / cycleStartPrice / 100
         : 0
-    // 盈亏%：已平仓时显示止盈/止损 USDT 金额（扣除0.1%卖出手续费），持仓中显示锚定价收益 USDT
-    const uPnLPct = inst.isOpen
-        ? (anchorPrice > 0 ? (spentQuote * (currentPrice - anchorPrice) / anchorPrice / 100).toFixed(2) : '0.00')
-        : (quoteAmount - spentQuote - quoteAmount * 0.001).toFixed(2)
+    const uPnLPct = cumulativeProfit
     const roi = anchorPrice > 0 ? ((currentPrice - anchorPrice) / anchorPrice * 100).toFixed(2) : '0.00'
 
     return {

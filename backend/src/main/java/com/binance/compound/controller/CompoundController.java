@@ -266,6 +266,7 @@ public class CompoundController {
                         .baseQty(i.getBaseQty())
                         .spentQuote(i.getSpentQuote())
                         .quoteAmount(i.getQuoteAmount())
+                        .cumulativeProfit(i.getCumulativeProfit())
                         .updatedAtUtc(i.getUpdatedAtUtc())
                         .createdAtUtc(i.getCreatedAtUtc())
                         .build())

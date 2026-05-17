@@ -26,6 +26,7 @@ CREATE TABLE cycle_instances (
     base_qty DECIMAL(32, 16) NOT NULL DEFAULT 0 COMMENT 'Current base asset quantity',
     spent_quote DECIMAL(32, 16) NOT NULL DEFAULT 0 COMMENT 'Quote spent on current position',
     quote_amount DECIMAL(32, 16) NOT NULL DEFAULT 0 COMMENT 'Next buy quote amount (compounded)',
+    cumulative_profit DECIMAL(32, 16) NOT NULL DEFAULT 0 COMMENT 'Cumulative take profit in USDT',
     
     updated_at_utc DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     created_at_utc DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,

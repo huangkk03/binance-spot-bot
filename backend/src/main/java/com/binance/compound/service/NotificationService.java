@@ -39,8 +39,10 @@ public class NotificationService {
     public void sendWeChatNotification(String title, String content) {
         String webhookUrl = getConfigValue("WECHAT_WEBHOOK_URL");
         if (webhookUrl == null || webhookUrl.trim().isEmpty()) {
+            log.debug("WeChat webhook URL not configured, skipping notification");
             return;
         }
+        log.info("Sending WeChat notification: title={}", title);
 
         try {
             // Support Server酱 (ServerChan) format or simple GET/POST

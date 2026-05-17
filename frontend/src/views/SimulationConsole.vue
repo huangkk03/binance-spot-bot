@@ -51,6 +51,10 @@
             <input type="text" v-model="localConfig.TAKE_PROFIT_PCT" :placeholder="selectedConfigSymbol !== 'GLOBAL' ? '留空则使用全局默认' : ''" />
           </div>
           <div class="form-group">
+            <label>STOP_LOSS_PCT (止损点，0=关闭止损)</label>
+            <input type="text" v-model="localConfig.STOP_LOSS_PCT" :placeholder="selectedConfigSymbol !== 'GLOBAL' ? '留空则使用全局默认' : ''" />
+          </div>
+          <div class="form-group">
             <label>QUOTE_RESERVE (预留金额)</label>
             <input type="text" v-model="localConfig.QUOTE_RESERVE" :placeholder="selectedConfigSymbol !== 'GLOBAL' ? '留空则使用全局默认' : ''" />
           </div>
@@ -217,6 +221,10 @@
             <input type="text" v-model="localRealConfig.TAKE_PROFIT_PCT" :placeholder="selectedRealConfigSymbol !== 'GLOBAL' ? '留空则使用全局默认' : ''" />
           </div>
           <div class="form-group">
+            <label>STOP_LOSS_PCT (止损点，0=关闭止损)</label>
+            <input type="text" v-model="localRealConfig.STOP_LOSS_PCT" :placeholder="selectedRealConfigSymbol !== 'GLOBAL' ? '留空则使用全局默认' : ''" />
+          </div>
+          <div class="form-group">
             <label>QUOTE_RESERVE (预留金额)</label>
             <input type="text" v-model="localRealConfig.QUOTE_RESERVE" :placeholder="selectedRealConfigSymbol !== 'GLOBAL' ? '留空则使用全局默认' : ''" />
           </div>
@@ -319,6 +327,7 @@ const selectedConfigSymbol = ref('GLOBAL')
 const selectedRealConfigSymbol = ref('GLOBAL')
 const localConfig = ref({
   TAKE_PROFIT_PCT: '0.03',
+  STOP_LOSS_PCT: '0',
   QUOTE_RESERVE: '10',
   MAX_ORDERS_PER_TICK: '5',
   RSI_OVERBOUGHT: '80',
@@ -327,6 +336,7 @@ const localConfig = ref({
 })
 const localRealConfig = ref({
   TAKE_PROFIT_PCT: '0.03',
+  STOP_LOSS_PCT: '0',
   QUOTE_RESERVE: '10',
   MAX_ORDERS_PER_TICK: '5',
   RSI_OVERBOUGHT: '80',
@@ -555,6 +565,7 @@ function handleConfigSymbolChange() {
   const suffix = selectedConfigSymbol.value === 'GLOBAL' ? '' : `_${selectedConfigSymbol.value}`
   const rsiSuffix = selectedConfigSymbol.value === 'GLOBAL' ? '_DEFAULT' : `_${selectedConfigSymbol.value}`
   localConfig.value.TAKE_PROFIT_PCT = cfg[`TAKE_PROFIT_PCT${suffix}`] || (selectedConfigSymbol.value === 'GLOBAL' ? '0.03' : '')
+  localConfig.value.STOP_LOSS_PCT = cfg[`STOP_LOSS_PCT${suffix}`] || (selectedConfigSymbol.value === 'GLOBAL' ? '0' : '')
   localConfig.value.QUOTE_RESERVE = cfg[`QUOTE_RESERVE${suffix}`] || (selectedConfigSymbol.value === 'GLOBAL' ? '10' : '')
   localConfig.value.MAX_ORDERS_PER_TICK = cfg[`MAX_ORDERS_PER_TICK${suffix}`] || (selectedConfigSymbol.value === 'GLOBAL' ? '5' : '')
   localConfig.value.RSI_OVERBOUGHT = cfg[`RSI_OVERBOUGHT${rsiSuffix}`] || (selectedConfigSymbol.value === 'GLOBAL' ? '80' : '')
@@ -566,6 +577,7 @@ function handleRealConfigSymbolChange() {
   const suffix = selectedRealConfigSymbol.value === 'GLOBAL' ? '' : `_${selectedRealConfigSymbol.value}`
   const rsiSuffix = selectedRealConfigSymbol.value === 'GLOBAL' ? '_DEFAULT' : `_${selectedRealConfigSymbol.value}`
   localRealConfig.value.TAKE_PROFIT_PCT = fullRealConfig.value[`TAKE_PROFIT_PCT${suffix}`] || (selectedRealConfigSymbol.value === 'GLOBAL' ? '0.03' : '')
+  localRealConfig.value.STOP_LOSS_PCT = fullRealConfig.value[`STOP_LOSS_PCT${suffix}`] || (selectedRealConfigSymbol.value === 'GLOBAL' ? '0' : '')
   localRealConfig.value.QUOTE_RESERVE = fullRealConfig.value[`QUOTE_RESERVE${suffix}`] || (selectedRealConfigSymbol.value === 'GLOBAL' ? '10' : '')
   localRealConfig.value.MAX_ORDERS_PER_TICK = fullRealConfig.value[`MAX_ORDERS_PER_TICK${suffix}`] || (selectedRealConfigSymbol.value === 'GLOBAL' ? '5' : '')
   localRealConfig.value.RSI_OVERBOUGHT = fullRealConfig.value[`RSI_OVERBOUGHT${rsiSuffix}`] || (selectedRealConfigSymbol.value === 'GLOBAL' ? '80' : '')

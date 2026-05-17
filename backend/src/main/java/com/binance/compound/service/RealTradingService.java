@@ -622,11 +622,12 @@ public class RealTradingService {
                 BigDecimal sellFee = cumQuoteQty.multiply(new BigDecimal("0.001"));
                 BigDecimal netQuote = cumQuoteQty.subtract(sellFee);
                 BigDecimal profit = netQuote.subtract(inst.getSpentQuote());
-
+                
                 inst.setIsOpen(false);
                 inst.setBaseQty(BigDecimal.ZERO);
                 inst.setSpentQuote(BigDecimal.ZERO);
                 inst.setQuoteAmount(netQuote);
+                inst.setCumulativeProfit(inst.getCumulativeProfit().add(profit));
                 // 保留 cycleStartPrice 以便追溯（不清零）
                 inst.setLastActionPrice(lastPrice);
                 inst.setReentryPrice("STOP_LOSS".equals(eventType) ? BigDecimal.ZERO : inst.getAnchorPrice());

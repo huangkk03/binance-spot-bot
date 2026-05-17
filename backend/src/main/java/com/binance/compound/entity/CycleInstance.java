@@ -68,6 +68,10 @@ public class CycleInstance {
     @Builder.Default
     private BigDecimal quoteAmount = BigDecimal.ZERO;
     
+    @Column(precision = 32, scale = 16, nullable = false)
+    @Builder.Default
+    private BigDecimal cumulativeProfit = BigDecimal.ZERO;
+    
     private Long apiAccountId;
     
     @Column(updatable = false)
