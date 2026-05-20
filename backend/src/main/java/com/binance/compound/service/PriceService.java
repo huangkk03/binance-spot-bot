@@ -133,65 +133,7 @@ public class PriceService {
         BigDecimal cached = priceCache.get(symbol);
         return cached != null ? cached : BigDecimal.ZERO;
     }
-    
-    public KLineData getKLine(String symbol) {
-        return getKLine(symbol, "1m", 1);
-    }
-    
-    public KLineData getKLine(String symbol, String interval, int limit) {
-        String normalized = symbol.toUpperCase();
-        if (!normalized.endsWith("USDT")) {
-            normalized = normalized + "USDT";
-        }
-        
-        try {
-            String url = String.format(BINANCE_KLINE_URL, normalized, interval, limit);
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
-                    .timeout(Duration.ofSeconds(5))
-                    .GET()
-                    .build();
-            
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            
-            if (response.statusCode() == 200) {
-                String body = response.body();
-                return parseKLine(body);
-            }
-        } catch (Exception e) {
-            log.warn("Failed to fetch kline for {}: {}", symbol, e.getMessage());
-        }
-        
-        return null;
-    }
-    
-    public List<KLineData> getKLines(String symbol, String interval, int limit) {
-        String normalized = symbol.toUpperCase();
-        if (!normalized.endsWith("USDT")) {
-            normalized = normalized + "USDT";
-        }
-        
-        try {
-            String url = String.format(BINANCE_KLINE_URL, normalized, interval, limit);
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
-                    .timeout(Duration.ofSeconds(5))
-                    .GET()
-                    .build();
-            
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            
-            if (response.statusCode() == 200) {
-                String body = response.body();
-                return parseKLines(body);
-            }
-        } catch (Exception e) {
-            log.warn("Failed to fetch klines for {}: {}", symbol, e.getMessage());
-        }
-        
-        return null;
-    }
-    
+
     private KLineData parseKLine(String json) {
         List<KLineData> klines = parseKLines(json);
         return klines != null && !klines.isEmpty() ? klines.get(0) : null;

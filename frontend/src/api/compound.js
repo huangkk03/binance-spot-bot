@@ -44,11 +44,6 @@ export const compoundApi = {
     return response.data
   },
 
-  async getKLine(symbol) {
-    const response = await api.get(`/kline/${symbol}`)
-    return response.data
-  },
-
   async subscribePrice(symbol) {
     const response = await api.post(`/prices/subscribe/${symbol}`)
     return response.data

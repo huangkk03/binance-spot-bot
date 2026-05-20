@@ -130,26 +130,7 @@ public class CompoundController {
     public BigDecimal getPrice(@PathVariable String symbol) {
         return priceService.getPrice(symbol);
     }
-    
-    @GetMapping("/kline/{symbol}")
-    public Map<String, Object> getKLine(@PathVariable String symbol) {
-        PriceService.KLineData kline = priceService.getKLine(symbol);
-        if (kline != null) {
-            return Map.of(
-                    "success", true,
-                    "symbol", symbol,
-                    "open", kline.getOpen(),
-                    "high", kline.getHigh(),
-                    "low", kline.getLow(),
-                    "close", kline.getClose(),
-                    "volume", kline.getVolume(),
-                    "openTime", kline.getOpenTime(),
-                    "closeTime", kline.getCloseTime()
-            );
-        }
-        return Map.of("success", false, "message", "Failed to fetch kline data");
-    }
-    
+
     @PostMapping("/prices/subscribe/{symbol}")
     public Map<String, Object> subscribePrice(@PathVariable String symbol) {
         priceService.subscribe(symbol);

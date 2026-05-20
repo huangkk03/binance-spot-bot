@@ -60,7 +60,6 @@ export const useCompoundStore = defineStore('compound', () => {
   }
   const instances = ref([])
   const prices = ref({})
-  const klines = ref({})
   const accounts = ref({})
   const alerts = ref({})
   const config = ref({
@@ -115,23 +114,6 @@ export const useCompoundStore = defineStore('compound', () => {
     } catch (e) {
       lastError.value = e.message
       console.error('fetchPrices error:', e)
-    }
-  }
-
-  async function fetchKLine(symbol) {
-    try {
-      const data = await compoundApi.getKLine(symbol)
-      if (data && data.success) {
-        klines.value[symbol] = data
-      }
-    } catch (e) {
-      console.error('fetchKLine error:', e)
-    }
-  }
-
-  async function fetchKLines(symbols) {
-    for (const symbol of symbols) {
-      await fetchKLine(symbol)
     }
   }
 
@@ -336,7 +318,6 @@ export const useCompoundStore = defineStore('compound', () => {
     isSimulation,
     instances,
     prices,
-    klines,
     accounts,
     alerts,
     config,
@@ -347,8 +328,6 @@ export const useCompoundStore = defineStore('compound', () => {
     setSimulationMode,
     fetchInstances,
     fetchPrices,
-    fetchKLine,
-    fetchKLines,
     deposit,
     executeTick,
     fetchAccounts,

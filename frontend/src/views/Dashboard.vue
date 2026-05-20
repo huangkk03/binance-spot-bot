@@ -41,38 +41,18 @@
         </el-button>
       </div>
       <div class="prices-grid">
-        <div v-for="sym in symbols" :key="sym" class="price-card" @click="openKlineDetail(sym)">
+        <div v-for="sym in symbols" :key="sym" class="price-card">
           <div class="price-symbol">{{ sym }}</div>
-          <div class="kline-data" v-if="store.klines[sym]">
-            <div class="kline-row">
+          <div class="price-data">
+            <div class="price-row">
               <span class="label">最新价:</span>
-              <span class="value" :class="getPriceClass(sym)">{{ formatPrice(store.prices[sym], sym) }}</span>
+              <span class="value">{{ formatPrice(store.prices[sym], sym) }}</span>
             </div>
-            <div class="kline-row">
-              <span class="label">开盘:</span>
-              <span class="value">{{ formatPrice(store.klines[sym].open, sym) }}</span>
-            </div>
-            <div class="kline-row">
-              <span class="label">最高:</span>
-              <span class="value high">{{ formatPrice(store.klines[sym].high, sym) }}</span>
-            </div>
-            <div class="kline-row">
-              <span class="label">最低:</span>
-              <span class="value low">{{ formatPrice(store.klines[sym].low, sym) }}</span>
-            </div>
-            <div class="kline-row">
-              <span class="label">成交量:</span>
-              <span class="value">{{ formatQty(store.klines[sym].volume) }}</span>
-            </div>
-            <div class="kline-row" v-if="getTdInfo(sym)">
+            <div class="price-row" v-if="getTdInfo(sym)">
               <span class="label">TD计数:</span>
               <span class="value" :class="getTdInfo(sym).class">{{ getTdInfo(sym).text }}</span>
             </div>
           </div>
-          <div v-else class="kline-loading">
-            加载中...
-          </div>
-          <div class="click-hint">点击查看K线</div>
         </div>
       </div>
     </div>
@@ -132,12 +112,6 @@
       </el-table>
     </div>
 
-    <el-dialog v-model="showKlineDialog" :title="selectedSymbol + ' K线图'" width="95%" top="2vh" destroy-on-close>
-      <template #default>
-        <KlineChart :symbol="selectedSymbol" />
-      </template>
-    </el-dialog>
-
     <el-dialog v-model="showInstanceDialog" :title="selectedInstanceSymbol + ' 实例详情'" width="95%" top="5vh" destroy-on-close>
       <template #default>
         <InstanceDetail :symbol="selectedInstanceSymbol" :instance-id="selectedInstanceId" :is-simulation="store.isSimulation" />
@@ -150,15 +124,12 @@
 import { ref, onMounted, computed, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useCompoundStore } from '../stores/compound'
-import KlineChart from '../components/KlineChart.vue'
 import InstanceDetail from '../components/InstanceDetail.vue'
 
 const store = useCompoundStore()
 
 const symbols = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'ADAUSDT', 'DOGEUSDT', 'SOLUSDT']
-const showKlineDialog = ref(false)
 const showInstanceDialog = ref(false)
-const selectedSymbol = ref('')
 const selectedInstanceSymbol = ref('')
 const selectedInstanceId = ref(0)
 const isGeneratingReport = ref(false)
@@ -230,16 +201,6 @@ function formatTime(time) {
   return new Date(time).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
 }
 
-function getPriceClass(symbol) {
-  const kline = store.klines[symbol]
-  if (!kline) return ''
-  const current = Number(store.prices[symbol])
-  const open = Number(kline.open)
-  if (current > open) return 'price-up'
-  if (current < open) return 'price-down'
-  return ''
-}
-
 function getTdInfo(symbol) {
   const alert1h = store.alerts[`${symbol}_1h`]
   const alert4h = store.alerts[`${symbol}_4h`]
@@ -269,11 +230,6 @@ function getTdInfo(symbol) {
     text: parts.join(' / ') + (maxCount >= 9 ? '⚠️' : ''),
     class: tdClass
   }
-}
-
-function openKlineDetail(symbol) {
-  selectedSymbol.value = symbol
-  showKlineDialog.value = true
 }
 
 function handleRowClick(row) {
@@ -314,12 +270,10 @@ onMounted(async () => {
   await store.fetchInstances()
   await store.fetchPrices()
   await store.fetchAccounts()
-  await store.fetchKLines(symbols)
   await store.fetchConfig()
   await store.fetchAlerts()
   
   setInterval(async () => {
-    await store.fetchKLines(symbols)
     await store.fetchAlerts()
   }, 5000)
 })
@@ -410,48 +364,32 @@ h2 {
   margin-bottom: 0.5rem;
 }
 
-.kline-data {
+.price-data {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
 }
 
-.kline-row {
+.price-row {
   display: flex;
   justify-content: space-between;
   font-size: 0.8rem;
 }
 
-.kline-row .label {
+.price-row .label {
   color: #848e9c;
 }
 
-.kline-row .value {
+.price-row .value {
   color: #e0e6ed;
 }
 
-.kline-row .value.high {
-  color: #0ecb81;
-}
-
-.kline-row .value.low {
-  color: #f6465d;
-}
-
-.kline-row .value.price-up {
-  color: #0ecb81;
-}
-
-.kline-row .value.price-down {
-  color: #f6465d;
-}
-
-.kline-row .value.td-counting {
+.price-row .value.td-counting {
   color: #f0b90b;
 }
 
-.kline-row .value.td-buy,
-.kline-row .value.td-sell {
+.price-row .value.td-buy,
+.price-row .value.td-sell {
   color: #f6465d;
   font-weight: bold;
 }
@@ -475,26 +413,6 @@ h2 {
 .mode-switch span.active {
   color: #f0b90b;
   font-weight: 600;
-}
-
-.kline-loading {
-  color: #848e9c;
-  font-size: 0.875rem;
-  text-align: center;
-  padding: 1rem;
-}
-
-.click-hint {
-  color: #f0b90b;
-  font-size: 0.75rem;
-  text-align: center;
-  margin-top: 0.5rem;
-  opacity: 0;
-  transition: opacity 0.2s;
-}
-
-.price-card:hover .click-hint {
-  opacity: 1;
 }
 
 .symbol-link {
