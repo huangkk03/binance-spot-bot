@@ -46,7 +46,7 @@ services:
       DB_PASSWORD: rootpassword
       REDIS_HOST: redis
       SPRING_PROFILES_ACTIVE: docker
-      BINANCE_PROXY: ${BINANCE_PROXY:-http://192.168.4.51:7897}
+      BINANCE_PROXY: ${BINANCE_PROXY:-}
       TRADING_AUTO_TICK_ENABLED: "true"
     ports:
       - "18080:8080"

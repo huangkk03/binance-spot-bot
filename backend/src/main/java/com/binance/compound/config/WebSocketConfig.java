@@ -44,6 +44,12 @@ public class WebSocketConfig implements WebSocketConfigurer {
             } catch (Exception e) {
                 log.warn("Failed to parse binance.proxy-url '{}': {}", proxyUrl, e.getMessage());
             }
+        } else {
+            System.clearProperty("http.proxyHost");
+            System.clearProperty("http.proxyPort");
+            System.clearProperty("https.proxyHost");
+            System.clearProperty("https.proxyPort");
+            log.info("Proxy disabled, cleared system proxy properties");
         }
     }
 
