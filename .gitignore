@@ -1,5 +1,6 @@
 # MySQL data
 data/mysql/
+data/redis/
 
 # Docker volumes (if any)
 # docker-compose.override.yml

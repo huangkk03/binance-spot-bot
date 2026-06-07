@@ -194,7 +194,25 @@ CREATE TABLE api_config (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================================
--- 11. api_accounts: Multiple API account support
+-- 11. funding_rate_alerts: Funding rate alerts for bottom-fishing signals
+-- ============================================================
+CREATE TABLE IF NOT EXISTS funding_rate_alerts (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    symbol VARCHAR(20) NOT NULL COMMENT 'Trading pair, e.g. BTCUSDT',
+    alert_type VARCHAR(20) NOT NULL COMMENT 'LEVEL_1 or LEVEL_2',
+    funding_rate DECIMAL(32, 16) COMMENT 'Funding rate when triggered',
+    annualized_rate DECIMAL(32, 16) COMMENT 'Annualized funding rate',
+    next_funding_time BIGINT COMMENT 'Next funding time timestamp',
+    last_notified_at DATETIME DEFAULT NULL COMMENT 'Last notification time for cooldown',
+    created_at_utc DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at_utc DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    UNIQUE KEY uk_symbol_alert_type (symbol, alert_type),
+    INDEX idx_last_notified (last_notified_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ============================================================
+-- 12. api_accounts: Multiple API account support
 -- ============================================================
 CREATE TABLE api_accounts (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,

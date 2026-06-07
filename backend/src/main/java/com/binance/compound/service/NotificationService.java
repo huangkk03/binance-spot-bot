@@ -101,7 +101,7 @@ public class NotificationService {
             props.put("mail.smtp.auth", "true");
             props.put("mail.smtp.starttls.enable", "true");
             props.put("mail.debug", "false");
-            
+
             if (mailSender.getPort() == 465) {
                 props.put("mail.smtp.ssl.enable", "true");
             }
@@ -116,6 +116,32 @@ public class NotificationService {
             mailSender.send(message);
         } catch (Exception e) {
             log.error("Exception sending Email notification", e);
+        }
+    }
+
+    public void sendWeChatMarkdownNotification(String markdownContent) {
+        String webhookUrl = getConfigValue("WECHAT_WEBHOOK_URL");
+        if (webhookUrl == null || webhookUrl.trim().isEmpty()) {
+            log.debug("WeChat webhook URL not configured, skipping markdown notification");
+            return;
+        }
+        log.info("Sending WeChat markdown notification");
+
+        try {
+            String jsonBody = String.format("{\"msgtype\":\"markdown\",\"markdown\":{\"content\":\"%s\"}}",
+                    markdownContent.replace("\\", "\\\\").replace("\"", "\\\""));
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(webhookUrl))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
+                    .build();
+
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() != 200) {
+                log.warn("Failed to send WeChat markdown notification. Status: {}, Body: {}", response.statusCode(), response.body());
+            }
+        } catch (Exception e) {
+            log.error("Exception sending WeChat markdown notification", e);
         }
     }
 

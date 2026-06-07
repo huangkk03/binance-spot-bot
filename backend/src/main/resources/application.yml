@@ -45,6 +45,16 @@ binance:
   timeout-seconds: 10
   proxy-url: ${BINANCE_PROXY:}
 
+funding-rate:
+  enabled: true
+  scan-interval-ms: 300000
+  symbols: BTCUSDT,ETHUSDT,SOLUSDT,BNBUSDT,DOGEUSDT
+  main-threshold-level1: -0.0005
+  main-threshold-level2: -0.001
+  alt-threshold-level1: -0.001
+  alt-threshold-level2: -0.002
+  cooldown-hours: 2
+
 simulation:
   default-take-profit-pct: 0.03
   default-quote-reserve: 10
