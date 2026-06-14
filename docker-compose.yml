@@ -2,18 +2,17 @@ version: '3.8'
 
 services:
   mysql:
-    image: mysql:5.6
+    image: mysql:8.0
     container_name: binance-compound-mysql
     environment:
       MYSQL_ROOT_PASSWORD: rootpassword
-      MYSQL_DATABASE: binance_compound
+      MYSQL_DATABASE: binance_compound_v2
     ports:
       - "13306:3306"
     volumes:
-      - ./data/mysql:/var/lib/mysql
-      - ./backend/src/main/resources/DB_SCHEMA.sql:/docker-entrypoint-initdb.d/DB_SCHEMA.sql:ro
+      - ./data/mysql-v2:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-prootpassword"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -40,21 +39,80 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: binance-compound-backend
+    env_file:
+      - ./backend/.env.example
     environment:
       DB_HOST: mysql
       DB_USER: root
       DB_PASSWORD: rootpassword
+      DB_NAME: binance_compound_v2
+      LEGACY_DB_NAME: binance_compound
       REDIS_HOST: redis
-      SPRING_PROFILES_ACTIVE: docker
-      BINANCE_PROXY: ${BINANCE_PROXY:-}
-      TRADING_AUTO_TICK_ENABLED: "true"
+      DJANGO_SETTINGS_MODULE: binance_bot.settings
+      BINANCE_PROXY_URL: ${BINANCE_PROXY:-}
+    command: daphne -b 0.0.0.0 -p 8080 binance_bot.asgi:application
     ports:
       - "18080:8080"
+    volumes:
+      - ./backend:/app
     depends_on:
       mysql:
         condition: service_healthy
       redis:
         condition: service_healthy
+    networks:
+      - compound-network
+    restart: unless-stopped
+
+  celery-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: binance-compound-celery-worker
+    env_file:
+      - ./backend/.env.example
+    environment:
+      DB_HOST: mysql
+      DB_USER: root
+      DB_PASSWORD: rootpassword
+      DB_NAME: binance_compound_v2
+      LEGACY_DB_NAME: binance_compound
+      REDIS_HOST: redis
+      DJANGO_SETTINGS_MODULE: binance_bot.settings
+    command: celery -A binance_bot worker -l info -c 4
+    volumes:
+      - ./backend:/app
+    depends_on:
+      - mysql
+      - redis
+      - backend
+    networks:
+      - compound-network
+    restart: unless-stopped
+    deploy:
+      replicas: 2
+
+  celery-beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: binance-compound-celery-beat
+    env_file:
+      - ./backend/.env.example
+    environment:
+      DB_HOST: mysql
+      DB_USER: root
+      DB_PASSWORD: rootpassword
+      DB_NAME: binance_compound_v2
+      LEGACY_DB_NAME: binance_compound
+      REDIS_HOST: redis
+      DJANGO_SETTINGS_MODULE: binance_bot.settings
+    command: celery -A binance_bot beat -l info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+    volumes:
+      - ./backend:/app
+    depends_on:
+      - mysql
+      - redis
     networks:
       - compound-network
     restart: unless-stopped
