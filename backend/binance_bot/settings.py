@@ -13,9 +13,9 @@ SECRET_KEY = os.environ.get(
     'django-insecure-change-me-in-production-9d8f7a6b5c4e3d2f1a0b9c8d7e6f5a4b'
 )
 
-DEBUG = os.environ.get('DJANGO_DEBUG', 'False').lower() == 'true'
+DEBUG = os.environ.get('DJANGO_DEBUG', 'True').lower() == 'true'
 
-ALLOWED_HOSTS = ['*'] if DEBUG else os.environ.get('ALLOWED_HOSTS', '').split(',')
+ALLOWED_HOSTS = ['*'] if DEBUG else [h.strip() for h in os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1,0.0.0.0,backend').split(',') if h.strip()]
 
 INSTALLED_APPS = [
     'django.contrib.admin',
