@@ -47,7 +47,7 @@ services:
       LEGACY_DB_NAME: binance_compound
       REDIS_HOST: redis
       DJANGO_SETTINGS_MODULE: binance_bot.settings
-      BINANCE_PROXY_URL: ${BINANCE_PROXY:-}
+      BINANCE_PROXY_URL: ${BINANCE_PROXY:-http://192.168.4.51:7897}
     command: daphne -b 0.0.0.0 -p 8080 binance_bot.asgi:application
     ports:
       - "18080:8080"

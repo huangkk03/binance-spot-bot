@@ -8,6 +8,9 @@ urlpatterns = [
     # 测试 API 凭据（不存储）
     path('test', views.account_test, name='account-test'),
 
+    # 代理状态
+    path('proxy-status', views.proxy_status, name='account-proxy-status'),
+
     # 余额查询（激活账户）
     path('balance', views.account_balance_all, name='account-balance-all'),
     path('balance/<str:asset>', views.account_balance_asset, name='account-balance-asset'),

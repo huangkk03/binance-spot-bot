@@ -1,5 +1,20 @@
 <template>
   <div>
+    <el-alert
+      v-if="proxyStatus && !proxyStatus.configured"
+      type="warning"
+      :closable="false"
+      style="margin-bottom: 1rem;"
+      show-icon
+    >
+      <template #title>
+        <strong>未配置 Binance 代理</strong>
+      </template>
+      国内服务器需要配置代理才能连接 Binance API。
+      请联系管理员设置 <code>BINANCE_PROXY_URL</code> 环境变量。
+      <br/>当前值: <code>{{ proxyStatus.value || '(空)' }}</code>
+    </el-alert>
+
     <div class="actions">
       <el-button type="primary" @click="openDialog()">添加 API 账户</el-button>
       <el-button @click="refreshList">刷新列表</el-button>
@@ -71,9 +86,18 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 const accounts = ref([])
 const dialogVisible = ref(false)
 const form = ref({})
+const proxyStatus = ref(null)
 
 async function refreshList() {
   accounts.value = await compoundApi.listAccounts()
+}
+
+async function loadProxyStatus() {
+  try {
+    proxyStatus.value = await compoundApi.getProxyStatus()
+  } catch (e) {
+    console.error('load proxy status failed:', e)
+  }
 }
 
 function openDialog(row) {
@@ -146,7 +170,10 @@ async function deleteAccount(row) {
   await refreshList()
 }
 
-onMounted(refreshList)
+onMounted(() => {
+  refreshList()
+  loadProxyStatus()
+})
 </script>
 
 <style scoped>

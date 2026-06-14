@@ -2,7 +2,10 @@
 API 账户管理 + 余额查询 Views
 """
 import logging
+import os
+import urllib.parse
 from django.db import transaction
+from django.conf import settings
 from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
@@ -161,6 +164,27 @@ def account_balance_all(request):
 
 
 @api_view(['GET'])
+def proxy_status(request):
+    """
+    GET /api/v1/accounts/proxy-status
+    返回代理配置状态（前端展示用，不泄露敏感信息）
+    """
+    proxy_url = getattr(settings, 'BINANCE_PROXY_URL', '') or os.environ.get('BINANCE_PROXY_URL', '')
+    configured = bool(proxy_url and proxy_url.strip())
+    host = None
+    if configured:
+        try:
+            host = urllib.parse.urlparse(proxy_url).hostname
+        except Exception:
+            host = None
+    return Response({
+        'configured': configured,
+        'host': host,
+        'value': proxy_url if configured else '',
+    })
+
+
+@api_view(['GET'])
 def account_balance_asset(request, asset):
     """
     GET /api/v1/accounts/balance/{asset}
@@ -204,4 +228,25 @@ def account_balance_by_id(request, pk):
         'account_name': account.account_name,
         'testnet': account.testnet,
         'balances': BalanceSerializer(balances, many=True).data,
+    })
+
+
+@api_view(['GET'])
+def proxy_status(request):
+    """
+    GET /api/v1/accounts/proxy-status
+    返回代理配置状态（前端展示用，不泄露敏感信息）
+    """
+    proxy_url = getattr(settings, 'BINANCE_PROXY_URL', '') or os.environ.get('BINANCE_PROXY_URL', '')
+    configured = bool(proxy_url and proxy_url.strip())
+    host = None
+    if configured:
+        try:
+            host = urllib.parse.urlparse(proxy_url).hostname
+        except Exception:
+            host = None
+    return Response({
+        'configured': configured,
+        'host': host,
+        'value': proxy_url if configured else '',
     })

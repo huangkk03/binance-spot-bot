@@ -3,6 +3,7 @@ Binance WebSocket Client (出站 → Binance)
 使用 ThreadedWebsocketManager (python-binance)
 """
 import logging
+import os
 import threading
 from decimal import Decimal
 from binance import ThreadedWebsocketManager
@@ -15,6 +16,28 @@ from channels.layers import get_channel_layer
 from apps.market.services.price_cache import PriceCacheService
 
 logger = logging.getLogger(__name__)
+
+
+def _setup_global_proxy():
+    """
+    设置全局代理环境变量 (含 NO_PROXY 排除内网)
+    从 settings.BINANCE_PROXY_URL 读取
+    """
+    proxy_url = getattr(settings, 'BINANCE_PROXY_URL', '') or os.environ.get('BINANCE_PROXY_URL', '')
+    if proxy_url and proxy_url.strip():
+        os.environ['HTTP_PROXY'] = proxy_url
+        os.environ['HTTPS_PROXY'] = proxy_url
+        # 排除内网不走代理
+        no_proxy = 'localhost,127.0.0.1,172.16.0.0/12,192.168.0.0/16,10.0.0.0/8,mysql,redis,backend'
+        os.environ['NO_PROXY'] = no_proxy
+        os.environ['no_proxy'] = no_proxy
+        logger.info(f'Proxy configured: {proxy_url} (NO_PROXY: {no_proxy})')
+    else:
+        logger.warning('No proxy configured (国内服务器需要配置 BINANCE_PROXY_URL)')
+
+
+# 模块加载时设置一次
+_setup_global_proxy()
 
 
 class BinanceMarketStream:
@@ -35,6 +58,9 @@ class BinanceMarketStream:
         if self._running:
             logger.warning('BinanceMarketStream already running')
             return
+
+        # 启动时再设置一次（确保 docker-compose env 已注入）
+        _setup_global_proxy()
 
         self._running = True
         self._thread = threading.Thread(target=self._run, daemon=True)

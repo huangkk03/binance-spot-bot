@@ -42,6 +42,10 @@ export const compoundApi = {
         const r = await api.get(`/accounts/${id}/balances`)
         return r.data
     },
+    async getProxyStatus() {
+        const r = await api.get('/accounts/proxy-status')
+        return r.data
+    },
 
     // ===== 交易 =====
     async executeTick(symbols) {
