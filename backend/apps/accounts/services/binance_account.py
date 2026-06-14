@@ -3,10 +3,12 @@ Binance 账户服务
 通过 python-binance Client 调用 /api/v3/account 实时查询余额
 """
 import logging
+import os
 from decimal import Decimal
 from typing import Optional, Dict, List
 from binance.client import Client
 from binance.exceptions import BinanceAPIException, BinanceRequestException
+from django.conf import settings
 
 from apps.accounts.models import ApiAccount
 
@@ -24,20 +26,25 @@ class BinanceAccountService:
 
     def _build_client(self) -> Client:
         """构造 python-binance Client"""
-        client = Client(
-            api_key=self.account.get_secret() if False else self.account.api_key,  # api_key 不加密
-            api_secret=self.account.get_secret(),
-            testnet=self.account.testnet,
-        )
+        # 优先使用全局代理 (settings.BINANCE_PROXY_URL)
+        global_proxy = getattr(settings, 'BINANCE_PROXY_URL', '') or os.environ.get('BINANCE_PROXY_URL', '')
+        account_proxy = self.account.proxy_url if (self.account.use_proxy and self.account.proxy_url) else ''
 
-        if self.account.use_proxy and self.account.proxy_url:
-            # python-binance 支持 request_params 自定义代理
-            # 简化：使用环境变量
-            import os
-            os.environ['HTTP_PROXY'] = self.account.proxy_url
-            os.environ['HTTPS_PROXY'] = self.account.proxy_url
+        # 决定使用哪个代理
+        proxy_url = account_proxy or global_proxy
 
-        return client
+        client_kwargs = {
+            'api_key': self.account.api_key,
+            'api_secret': self.account.get_secret(),
+            'testnet': self.account.testnet,
+        }
+
+        if proxy_url:
+            # 关键修复：通过 proxies 参数让 python-binance 走代理
+            client_kwargs['proxies'] = {'http': proxy_url, 'https': proxy_url}
+            logger.info(f'Binance client using proxy: {proxy_url}')
+
+        return Client(**client_kwargs)
 
     def get_account_info(self) -> Optional[Dict]:
         """
