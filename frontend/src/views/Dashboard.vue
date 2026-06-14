@@ -1,146 +1,94 @@
 <template>
   <div class="dashboard">
-    <div class="stats-row">
-      <div class="stat-card">
-        <div class="stat-label">实例总数</div>
-        <div class="stat-value">{{ store.instances.length }}</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">持仓中</div>
-        <div class="stat-value">{{ store.openInstances.length }}</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">总收益 (USDT)</div>
-        <div class="stat-value" :class="{ positive: store.totalPnL > 0, negative: store.totalPnL < 0 }">
-          {{ store.totalPnL.toFixed(2) }}
+    <el-card class="header-card">
+      <div class="header-row">
+        <h2>Binance Spot Bot - 真实交易</h2>
+        <div class="account-info">
+          <el-tag v-if="activeAccount" type="success">激活: {{ activeAccount.account_name }}</el-tag>
+          <el-tag v-else type="warning">未激活账户</el-tag>
         </div>
       </div>
-      <div class="stat-card">
-        <div class="stat-label">USDT 余额</div>
-        <div class="stat-value">{{ usdtBalance }}</div>
-      </div>
-      <div class="stat-card mode-toggle">
-        <div class="stat-label">交易模式</div>
-        <div class="mode-switch">
-          <span :class="{ active: !store.isSimulation }">真实</span>
-          <el-switch 
-            v-model="isSimMode" 
-            active-text="模拟" 
-            inactive-text="" 
-          />
-          <span :class="{ active: store.isSimulation }">模拟</span>
-        </div>
-      </div>
-    </div>
+    </el-card>
 
-    <div class="prices-section">
-      <div class="section-header">
-        <h2>实时行情</h2>
-        <el-button type="primary" @click="generateAiReport" :loading="isGeneratingReport">
-          生成 BTC AI 分析报告 (PDF)
-        </el-button>
-      </div>
+    <el-card class="section">
+      <template #header>
+        <div class="card-header">
+          <span>实时行情</span>
+          <el-button @click="generateBtcReport" :loading="reportLoading">生成 BTC AI 报告 (PDF)</el-button>
+        </div>
+      </template>
       <div class="prices-grid">
         <div v-for="sym in symbols" :key="sym" class="price-card">
           <div class="price-symbol">{{ sym }}</div>
-          <div class="price-data">
-            <div class="price-row">
-              <span class="label">最新价:</span>
-              <span class="value">{{ formatPrice(store.prices[sym], sym) }}</span>
-            </div>
-            <div class="price-row" v-if="getTdInfo(sym)">
-              <span class="label">TD计数:</span>
-              <span class="value" :class="getTdInfo(sym).class">{{ getTdInfo(sym).text }}</span>
-            </div>
+          <div class="price-value">${{ formatPrice(store.prices[sym]) }}</div>
+          <div v-if="getTdInfo(sym)" class="td-info" :class="getTdInfo(sym).class">
+            {{ getTdInfo(sym).text }}
           </div>
         </div>
       </div>
-    </div>
+    </el-card>
 
-    <div class="instances-section">
-      <h2>活动实例</h2>
-      <el-table :data="instanceDetails" style="width: 100%" :max-height="500" @row-click="handleRowClick">
-        <el-table-column prop="symbolId" label="交易对#实例" width="130">
+    <el-card class="section">
+      <template #header>
+        <div class="card-header">
+          <span>交易实例</span>
+          <el-button size="small" @click="refreshInstances">刷新</el-button>
+        </div>
+      </template>
+      <el-table :data="instanceDetails" stripe>
+        <el-table-column prop="symbolId" label="交易对" width="140" />
+        <el-table-column prop="isOpen" label="状态" width="80">
           <template #default="{ row }">
-            <span class="symbol-link">{{ row.symbol }}#{{ row.instanceId }}</span>
+            <el-tag :type="row.isOpen ? 'success' : 'info'" size="small">
+              {{ row.isOpen ? '持仓中' : '已平仓' }}
+            </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="status" label="状态" width="80">
-          <template #default="{ row }">
-            <el-tag :type="row.isOpen ? 'success' : 'info'" size="small">{{ row.isOpen ? '持仓中' : '已平仓' }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="cycleId" label="周期" width="70" />
-        <el-table-column prop="stepCnt" label="步数" width="70" />
+        <el-table-column prop="cycleId" label="周期" width="60" />
         <el-table-column prop="anchorPrice" label="锚定价" width="120">
-          <template #default="{ row }">{{ formatPrice(row.anchorPrice, row.symbol) }}</template>
+          <template #default="{ row }">{{ formatPrice(row.anchorPrice) }}</template>
         </el-table-column>
-        <el-table-column prop="reentryPrice" label="重新入场" width="120">
-          <template #default="{ row }">{{ formatPrice(row.reentryPrice, row.symbol) }}</template>
+        <el-table-column prop="cycleStartPrice" label="开仓价" width="120">
+          <template #default="{ row }">{{ formatPrice(row.cycleStartPrice) }}</template>
         </el-table-column>
-        <el-table-column prop="baseQty" label="数量" width="130">
+        <el-table-column prop="baseQty" label="数量" width="100">
           <template #default="{ row }">{{ formatQty(row.baseQty) }}</template>
         </el-table-column>
-        <el-table-column prop="equity" label="权益" width="110">
-          <template #default="{ row }">{{ formatPrice(row.equity, row.symbol) }}</template>
+        <el-table-column prop="quoteAmount" label="权益" width="100">
+          <template #default="{ row }">{{ formatPrice(row.quoteAmount) }}</template>
         </el-table-column>
         <el-table-column prop="uPnL" label="未实现盈亏" width="100">
-          <template #default="{ row }">
-            <span :class="row.uPnL >= 0 ? 'positive' : 'negative'">
-              {{ row.uPnL >= 0 ? '+' : '' }}{{ formatPrice(row.uPnL, row.symbol) }}
-            </span>
-          </template>
+          <template #default="{ row }">{{ formatPrice(row.uPnL) }}</template>
         </el-table-column>
         <el-table-column prop="uPnLPct" label="盈亏/USDT" width="100">
           <template #default="{ row }">
             <span :class="Number(row.uPnLPct) >= 0 ? 'positive' : 'negative'">
-              {{ Number(row.uPnLPct) >= 0 ? '+' : '' }}{{ row.uPnLPct }}
+              {{ Number(row.uPnLPct) >= 0 ? '+' : '' }}{{ formatPrice(row.uPnLPct) }}
             </span>
           </template>
         </el-table-column>
-        <el-table-column prop="roi" label="收益率" width="90">
-          <template #default="{ row }">
-            <span :class="row.roi >= 0 ? 'positive' : 'negative'">{{ row.roi }}%</span>
-          </template>
-        </el-table-column>
         <el-table-column prop="markPrice" label="标记价" width="120">
-          <template #default="{ row }">{{ formatPrice(row.markPrice, row.symbol) }}</template>
-        </el-table-column>
-        <el-table-column prop="updatedAtUtc" label="更新时间" width="170">
-          <template #default="{ row }">{{ formatTime(row.updatedAtUtc) }}</template>
+          <template #default="{ row }">{{ formatPrice(row.markPrice) }}</template>
         </el-table-column>
       </el-table>
-    </div>
-
-    <el-dialog v-model="showInstanceDialog" :title="selectedInstanceSymbol + ' 实例详情'" width="95%" top="5vh" destroy-on-close>
-      <template #default>
-        <InstanceDetail :symbol="selectedInstanceSymbol" :instance-id="selectedInstanceId" :is-simulation="store.isSimulation" />
-      </template>
-    </el-dialog>
+    </el-card>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, computed, watch } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useCompoundStore } from '../stores/compound'
-import InstanceDetail from '../components/InstanceDetail.vue'
+import { compoundApi } from '../api/compound'
+import { ElMessage } from 'element-plus'
 
 const store = useCompoundStore()
-
 const symbols = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'ADAUSDT', 'DOGEUSDT', 'SOLUSDT']
-const showInstanceDialog = ref(false)
-const selectedInstanceSymbol = ref('')
-const selectedInstanceId = ref(0)
-const isGeneratingReport = ref(false)
-const isSimMode = computed({
-  get: () => store.isSimulation,
-  set: (val) => store.setSimulationMode(val)
-})
+const reportLoading = ref(false)
+let refreshTimer = null
 
-const usdtBalance = computed(() => {
-  const account = store.accounts['USDT']
-  return account ? Number(account.freeBalance).toFixed(2) : '0.00'
+const activeAccount = computed(() => {
+  const allAccounts = store.accounts.find?.(a => a.is_active) || null
+  return allAccounts
 })
 
 const instanceDetails = computed(() => {
@@ -153,38 +101,23 @@ const instanceDetails = computed(() => {
     const quoteAmount = Number(inst.quoteAmount) || 0
     const cumulativeProfit = Number(inst.cumulativeProfit) || 0
 
-    const equity = inst.isOpen ? baseQty * currentPrice : 0
     const uPnL = inst.isOpen && cycleStartPrice > 0
         ? spentQuote * (currentPrice - cycleStartPrice) / cycleStartPrice / 100
         : 0
-    const uPnLPct = cumulativeProfit
-    const roi = anchorPrice > 0 ? ((currentPrice - anchorPrice) / anchorPrice * 100).toFixed(2) : '0.00'
 
     return {
       ...inst,
-      symbolId: `${inst.symbol}#${inst.instanceId}`,
-      equity: equity,
+      symbolId: `${inst.symbol}#${inst.instance_id}`,
       uPnL: uPnL,
-      uPnLPct: uPnLPct,
-      roi: roi,
+      uPnLPct: cumulativeProfit,
       markPrice: currentPrice,
-      stepCnt: 0
     }
   })
 })
 
-function getDecimalPlaces(symbol) {
-  const highPriceSymbols = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'SOLUSDT']
-  if (highPriceSymbols.includes(symbol)) return 2
-  const midPriceSymbols = ['ADAUSDT']
-  if (midPriceSymbols.includes(symbol)) return 4
-  return 8
-}
-
-function formatPrice(value, symbol) {
-  if (value === null || value === undefined || value === '0' || value === 0) return '-'
-  const decimals = getDecimalPlaces(symbol)
-  return Number(value).toFixed(decimals)
+function formatPrice(value) {
+  if (!value && value !== 0) return '-'
+  return Number(value).toFixed(2)
 }
 
 function formatQty(value) {
@@ -192,262 +125,84 @@ function formatQty(value) {
   return Number(value).toFixed(4)
 }
 
-function formatTime(time) {
-  if (!time) return '-'
-  if (Array.isArray(time)) {
-    const d = new Date(Date.UTC(time[0], time[1] - 1, time[2], time[3], time[4], time[5]))
-    return d.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
-  }
-  return new Date(time).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
-}
-
 function getTdInfo(symbol) {
   const alert1h = store.alerts[`${symbol}_1h`]
   const alert4h = store.alerts[`${symbol}_4h`]
-  
   if (!alert1h && !alert4h) return null
-  
+
   const parts = []
-  if (alert1h) {
-    parts.push(`1H:${alert1h.tdCount}`)
-  }
-  if (alert4h) {
-    parts.push(`4H:${alert4h.tdCount}`)
-  }
-  
-  const maxCount = Math.max(alert1h?.tdCount || 0, alert4h?.tdCount || 0)
-  const isBuy = alert1h?.alertType === 'TD_BUY' || alert4h?.alertType === 'TD_BUY'
-  const isSell = alert1h?.alertType === 'TD_SELL' || alert4h?.alertType === 'TD_SELL'
-  
+  if (alert1h) parts.push(`1H:${alert1h.td_count}`)
+  if (alert4h) parts.push(`4H:${alert4h.td_count}`)
+
+  const maxCount = Math.max(alert1h?.td_count || 0, alert4h?.td_count || 0)
+  const isBuy = alert1h?.alert_type === 'TD_BUY' || alert4h?.alert_type === 'TD_BUY'
+  const isSell = alert1h?.alert_type === 'TD_SELL' || alert4h?.alert_type === 'TD_SELL'
+
   let tdClass = ''
-  if (maxCount >= 9) {
-    tdClass = isBuy ? 'td-buy' : isSell ? 'td-sell' : ''
-  } else if (maxCount >= 6) {
-    tdClass = 'td-counting'
-  }
-  
+  if (maxCount >= 9) tdClass = isBuy ? 'td-buy' : isSell ? 'td-sell' : ''
+  else if (maxCount >= 6) tdClass = 'td-counting'
+
   return {
     text: parts.join(' / ') + (maxCount >= 9 ? '⚠️' : ''),
-    class: tdClass
+    class: tdClass,
   }
 }
 
-function handleRowClick(row) {
-  selectedInstanceSymbol.value = row.symbol
-  selectedInstanceId.value = row.instanceId
-  showInstanceDialog.value = true
+async function refreshInstances() {
+  await store.fetchInstances()
 }
 
-async function generateAiReport() {
-  isGeneratingReport.value = true
+async function generateBtcReport() {
+  reportLoading.value = true
+  ElMessage.info('正在生成 BTC AI 报告...')
   try {
-    ElMessage.info('正在生成 AI 报告，请稍候...')
-    const response = await fetch('/api/v1/reports/btc-prediction/pdf')
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`)
-    }
-    const blob = await response.blob()
-    const url = window.URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.style.display = 'none'
-    a.href = url
-    a.download = `BTC_AI_Report_${new Date().getTime()}.pdf`
-    document.body.appendChild(a)
-    a.click()
-    window.URL.revokeObjectURL(url)
-    document.body.removeChild(a)
-    ElMessage.success('报告生成成功并已开始下载')
-  } catch (error) {
-    console.error('Failed to generate report:', error)
-    ElMessage.error('生成报告失败: ' + error.message)
+    const url = await compoundApi.getBtcPredictionPdfUrl()
+    window.open(url, '_blank')
+    ElMessage.success('报告已在新窗口打开')
+  } catch (e) {
+    ElMessage.error('生成报告失败: ' + e.message)
   } finally {
-    isGeneratingReport.value = false
+    reportLoading.value = false
   }
 }
 
 onMounted(async () => {
   store.initWebSocket()
-  await store.fetchInstances()
-  await store.fetchPrices()
-  await store.fetchAccounts()
-  await store.fetchConfig()
-  await store.fetchAlerts()
-  
-  setInterval(async () => {
+  await Promise.all([
+    store.fetchInstances(),
+    store.fetchPrices(),
+    store.fetchAccounts(),
+    store.fetchAlerts(),
+    store.fetchFundingAlerts(),
+  ])
+
+  refreshTimer = setInterval(async () => {
     await store.fetchAlerts()
-  }, 5000)
+    await store.fetchFundingAlerts()
+  }, 10000)
+})
+
+onUnmounted(() => {
+  if (refreshTimer) clearInterval(refreshTimer)
 })
 </script>
 
 <style scoped>
-.dashboard {
-  max-width: 1600px;
-  margin: 0 auto;
-}
-
-.stats-row {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 1rem;
-  margin-bottom: 2rem;
-}
-
-.stat-card {
-  background: #1a1f2e;
-  border: 1px solid #2a3042;
-  border-radius: 8px;
-  padding: 1.5rem;
-}
-
-.stat-label {
-  color: #848e9c;
-  font-size: 0.875rem;
-  margin-bottom: 0.5rem;
-}
-
-.stat-value {
-  font-size: 1.75rem;
-  font-weight: 600;
-  color: #e0e6ed;
-}
-
-.stat-value.positive, .positive {
-  color: #0ecb81 !important;
-}
-
-.stat-value.negative, .negative {
-  color: #f6465d !important;
-}
-
-.prices-section,
-.instances-section {
-  margin-bottom: 2rem;
-}
-
-.section-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 1rem;
-}
-
-h2 {
-  color: #e0e6ed;
-  margin-bottom: 0;
-  font-size: 1.25rem;
-}
-
-.prices-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 1rem;
-}
-
+.dashboard { max-width: 1600px; margin: 0 auto; padding: 1rem; }
+.header-card { margin-bottom: 1rem; }
+.header-row { display: flex; justify-content: space-between; align-items: center; }
+.section { margin-bottom: 1rem; }
+.card-header { display: flex; justify-content: space-between; align-items: center; }
+.prices-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 1rem; }
 .price-card {
-  background: #1a1f2e;
-  border: 1px solid #2a3042;
-  border-radius: 8px;
-  padding: 1rem;
-  cursor: pointer;
-  transition: all 0.2s;
+  background: #1a1f2e; border: 1px solid #2a3042; border-radius: 8px;
+  padding: 1rem; text-align: center;
 }
-
-.price-card:hover {
-  border-color: #f0b90b;
-  transform: translateY(-2px);
-}
-
-.price-symbol {
-  color: #f0b90b;
-  font-size: 1rem;
-  font-weight: 600;
-  margin-bottom: 0.5rem;
-}
-
-.price-data {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-.price-row {
-  display: flex;
-  justify-content: space-between;
-  font-size: 0.8rem;
-}
-
-.price-row .label {
-  color: #848e9c;
-}
-
-.price-row .value {
-  color: #e0e6ed;
-}
-
-.price-row .value.td-counting {
-  color: #f0b90b;
-}
-
-.price-row .value.td-buy,
-.price-row .value.td-sell {
-  color: #f6465d;
-  font-weight: bold;
-}
-
-.mode-toggle {
-  min-width: 180px;
-}
-
-.mode-switch {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  justify-content: center;
-}
-
-.mode-switch span {
-  color: #848e9c;
-  font-size: 0.875rem;
-}
-
-.mode-switch span.active {
-  color: #f0b90b;
-  font-weight: 600;
-}
-
-.symbol-link {
-  color: #f0b90b;
-  cursor: pointer;
-  font-weight: 600;
-}
-
-.symbol-link:hover {
-  text-decoration: underline;
-}
-
-:deep(.el-table) {
-  --el-table-bg-color: #1a1f2e;
-  --el-table-tr-bg-color: #1a1f2e;
-  --el-table-header-bg-color: #1f2535;
-  --el-table-row-hover-bg-color: #252a3d;
-  --el-table-border-color: #2a3042;
-  --el-table-text-color: #e0e6ed;
-  --el-table-header-text-color: #848e9c;
-}
-
-:deep(.el-table th.el-table__cell) {
-  background-color: #1f2535 !important;
-}
-
-:deep(.el-table__body-wrapper tbody tr) {
-  background-color: #1a1f2e !important;
-}
-
-:deep(.el-table__body-wrapper tbody tr:hover) {
-  background-color: #252a3d !important;
-}
-
-:deep(.el-dialog) {
-  --el-dialog-bg-color: #1a1f2e;
-}
+.price-symbol { color: #f0b90b; font-weight: 600; margin-bottom: 0.5rem; }
+.price-value { font-size: 1.25rem; color: #e0e6ed; }
+.td-info { margin-top: 0.5rem; font-size: 0.875rem; }
+.td-info.td-buy, .td-info.td-sell { color: #f6465d; font-weight: bold; }
+.td-info.td-counting { color: #f0b90b; }
+.positive { color: #0ecb81; }
+.negative { color: #f6465d; }
 </style>
