@@ -1,5 +1,8 @@
 # MySQL data
-data/mysql/
+data/
+
+# Redis data
+data/redis/
 
 # Docker volumes (if any)
 # docker-compose.override.yml
@@ -21,3 +24,12 @@ Thumbs.db
 # Build artifacts
 backend/target/
 frontend/node_modules/
+
+# Python
+backend/__pycache__/
+backend/**/__pycache__/
+backend/*.pyc
+
+# Frontend
+frontend/dist/
+frontend/.vite/
