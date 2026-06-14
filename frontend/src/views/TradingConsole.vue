@@ -4,6 +4,9 @@
       <el-tab-pane label="API 账户" name="accounts">
         <AccountsPanel />
       </el-tab-pane>
+      <el-tab-pane label="首次开仓" name="open">
+        <FirstOpenPanel />
+      </el-tab-pane>
       <el-tab-pane label="策略配置" name="strategy">
         <StrategyPanel />
       </el-tab-pane>
@@ -23,6 +26,7 @@
 <script setup>
 import { ref } from 'vue'
 import AccountsPanel from '../components/AccountsPanel.vue'
+import FirstOpenPanel from '../components/FirstOpenPanel.vue'
 import StrategyPanel from '../components/StrategyPanel.vue'
 import TickPanel from '../components/TickPanel.vue'
 import AiConfigPanel from '../components/AiConfigPanel.vue'

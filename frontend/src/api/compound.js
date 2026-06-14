@@ -93,6 +93,33 @@ export const compoundApi = {
         return r.data
     },
 
+    // ===== 策略配置 =====
+    async getStrategyConfigList(symbol) {
+        const r = await api.get('/strategy/config', { params: symbol ? { symbol } : {} })
+        return r.data
+    },
+    async getStrategyEffective(symbol) {
+        const r = await api.get('/strategy/effective', { params: symbol ? { symbol } : {} })
+        return r.data
+    },
+    async getStrategyEffectiveValue(key, symbol) {
+        const r = await api.get(`/strategy/config/${key}/effective`, { params: symbol ? { symbol } : {} })
+        return r.data
+    },
+    async upsertStrategyConfig(key, value, symbol = null, description = '') {
+        const params = symbol ? { symbol } : {}
+        const r = await api.put(`/strategy/config/${key}`, {
+            config_value: value,
+            description,
+        }, { params })
+        return r.data
+    },
+    async deleteStrategyConfig(key, symbol = null) {
+        const params = symbol ? { symbol } : {}
+        const r = await api.delete(`/strategy/config/${key}`, { params })
+        return r.data
+    },
+
     // ===== 通知 =====
     async getConfig() {
         const r = await api.get('/notifications/config')

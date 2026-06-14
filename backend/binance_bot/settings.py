@@ -15,7 +15,8 @@ SECRET_KEY = os.environ.get(
 
 DEBUG = os.environ.get('DJANGO_DEBUG', 'True').lower() == 'true'
 
-ALLOWED_HOSTS = ['*'] if DEBUG else [h.strip() for h in os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1,0.0.0.0,backend').split(',') if h.strip()]
+# 测试客户端使用 'testserver' host
+ALLOWED_HOSTS = ['*'] if DEBUG else [h.strip() for h in os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1,0.0.0.0,backend,testserver').split(',') if h.strip()]
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -39,6 +40,7 @@ INSTALLED_APPS = [
     'apps.notifications',
     'apps.reports',
     'apps.ai',
+    'apps.strategy',
 ]
 
 MIDDLEWARE = [
@@ -152,6 +154,10 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'apps.scanners.tasks.scan_funding_rates',
         'schedule': 300.0,  # 5分钟
     },
+    'daily-btc-report': {
+        'task': 'apps.reports.tasks.generate_daily_btc_report',
+        'schedule': crontab(hour=8, minute=0),  # 每天 8:00
+    },
 }
 
 # Authentication
@@ -229,6 +235,7 @@ TRADING = {
     'TAKE_PROFIT_PCT': 0.03,
     'STOP_LOSS_PCT': 0.10,
     'MAX_ORDERS_PER_TICK': 5,
+    'MAX_INSTANCES_PER_SYMBOL': 3,
     'QUOTE_RESERVE': 10,
     'AUTO_TICK_ENABLED': True,
     'AUTO_TICK_INTERVAL_MS': 30000,

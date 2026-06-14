@@ -1,7 +1,7 @@
 """
 交易核心引擎
 复利循环: 开仓 → 止盈 → 复利再买入 → 重复
-替代 Java 的 RealTradingService (864 行)
+支持策略参数三层覆盖 (symbol-specific > global DB > settings.py)
 """
 import logging
 from decimal import Decimal, ROUND_DOWN
@@ -17,6 +17,7 @@ from apps.trading.models import (
 from apps.trading.services.binance_client import BinanceTradingClient
 from apps.trading.services.precision import PrecisionService
 from apps.market.services.price_cache import PriceCacheService
+from apps.strategy.services.strategy import StrategyService
 
 logger = logging.getLogger(__name__)
 
@@ -27,12 +28,14 @@ TAKER_FEE_RATE = Decimal('0.001')
 class TradingEngine:
     """
     真实交易核心引擎
+    使用 StrategyService 解析所有交易参数 (支持 symbol-specific 覆盖)
     """
 
     def __init__(self):
         self.active_account = ApiAccount.get_active()
         self.client = None
         self.trading_client = None
+        self.strategy = StrategyService()
         if self.active_account:
             from binance.client import Client
             self.client = Client(
@@ -43,24 +46,30 @@ class TradingEngine:
             self.trading_client = BinanceTradingClient(self.client)
 
     def get_take_profit_pct(self, symbol: str) -> Decimal:
-        """获取止盈百分比（默认 0.03 = 3%）"""
-        from django.conf import settings
-        return Decimal(str(settings.TRADING['TAKE_PROFIT_PCT']))
+        """获取止盈百分比（symbol-specific 覆盖全局）"""
+        return self.strategy.get_take_profit_pct(symbol)
 
     def get_stop_loss_pct(self, symbol: str) -> Decimal:
-        """获取止损百分比（默认 0.10 = 10%）"""
-        from django.conf import settings
-        return Decimal(str(settings.TRADING['STOP_LOSS_PCT']))
+        """获取止损百分比 (0=关闭)"""
+        return self.strategy.get_stop_loss_pct(symbol)
 
     def get_quote_reserve(self) -> Decimal:
-        """获取 quote 保留金额"""
-        from django.conf import settings
-        return Decimal(str(settings.TRADING['QUOTE_RESERVE']))
+        """获取 USDT 保留金额"""
+        return self.strategy.get_quote_reserve()
 
     def get_max_orders_per_tick(self) -> int:
         """每 tick 最大订单数"""
-        from django.conf import settings
-        return int(settings.TRADING['MAX_ORDERS_PER_TICK'])
+        return self.strategy.get_max_orders_per_tick()
+
+    def get_max_instances_per_symbol(self, symbol: str) -> int:
+        """每交易对最大实例数"""
+        return self.strategy.get_max_instances_per_symbol(symbol)
+
+    def can_create_new_instance(self, symbol: str) -> bool:
+        """检查该交易对是否还能创建新实例"""
+        max_instances = self.get_max_instances_per_symbol(symbol)
+        current_count = CycleInstance.objects.filter(symbol=symbol).count()
+        return current_count < max_instances
 
     def execute_tick(self, symbols: List[str]) -> List[str]:
         """
@@ -323,8 +332,17 @@ class TradingEngine:
         # 找一个未开仓的实例，或创建新实例
         inst = CycleInstance.objects.filter(symbol=symbol, is_open=False).first()
         if not inst:
+            # 需要创建新实例前检查 MAX_INSTANCES 限制
+            max_instances = self.get_max_instances_per_symbol(symbol)
+            current_count = CycleInstance.objects.filter(symbol=symbol).count()
+            if current_count >= max_instances:
+                return {
+                    'success': False,
+                    'errors': [f'该交易对已达到最大实例数 ({max_instances})，无法创建新实例。请先复利或手动平仓现有实例。']
+                }
+
             # 创建新实例
-            next_id = CycleInstance.objects.filter(symbol=symbol).count() + 1
+            next_id = current_count + 1
             inst = CycleInstance.objects.create(
                 symbol=symbol,
                 instance_id=next_id,
