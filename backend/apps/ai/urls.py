@@ -1,5 +1,6 @@
 from django.urls import path
+from . import views
 
 urlpatterns = [
-    # 后续阶段实现
+    path('chat', views.chat, name='ai-chat'),
 ]
