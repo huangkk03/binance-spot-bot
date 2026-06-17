@@ -32,12 +32,29 @@ class BinanceTradingClient:
                 symbol=symbol,
                 quoteOrderQty=str(quote_quantity)
             )
+            # 计算实际成交均价和手续费
+            executed_qty = result.get('executedQty', '0')
+            cummulative_quote_qty = result.get('cummulativeQuoteQty', '0')
+            avg_price = '0'
+            if float(executed_qty) > 0:
+                avg_price = str(float(cummulative_quote_qty) / float(executed_qty))
+
+            # 从 fills 中累加手续费
+            total_commission = 0.0
+            commission_asset = ''
+            for fill in result.get('fills', []):
+                total_commission += float(fill.get('commission', 0))
+                commission_asset = fill.get('commissionAsset', '') or commission_asset
+
             return {
                 'success': True,
                 'order_id': str(result.get('orderId', '')),
                 'symbol': result.get('symbol', symbol),
-                'executed_qty': result.get('executedQty', '0'),
-                'cummulative_quote_qty': result.get('cummulativeQuoteQty', '0'),
+                'executed_qty': executed_qty,
+                'cummulative_quote_qty': cummulative_quote_qty,
+                'avg_price': avg_price,
+                'commission': str(total_commission),
+                'commission_asset': commission_asset,
                 'status': result.get('status', ''),
                 'raw': result,
             }
@@ -61,12 +78,27 @@ class BinanceTradingClient:
                 symbol=symbol,
                 quantity=str(quantity)
             )
+            executed_qty = result.get('executedQty', '0')
+            cummulative_quote_qty = result.get('cummulativeQuoteQty', '0')
+            avg_price = '0'
+            if float(executed_qty) > 0:
+                avg_price = str(float(cummulative_quote_qty) / float(executed_qty))
+
+            total_commission = 0.0
+            commission_asset = ''
+            for fill in result.get('fills', []):
+                total_commission += float(fill.get('commission', 0))
+                commission_asset = fill.get('commissionAsset', '') or commission_asset
+
             return {
                 'success': True,
                 'order_id': str(result.get('orderId', '')),
                 'symbol': result.get('symbol', symbol),
-                'executed_qty': result.get('executedQty', '0'),
-                'cummulative_quote_qty': result.get('cummulativeQuoteQty', '0'),
+                'executed_qty': executed_qty,
+                'cummulative_quote_qty': cummulative_quote_qty,
+                'avg_price': avg_price,
+                'commission': str(total_commission),
+                'commission_asset': commission_asset,
                 'status': result.get('status', ''),
                 'raw': result,
             }

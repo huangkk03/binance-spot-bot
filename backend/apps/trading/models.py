@@ -107,7 +107,15 @@ class TradeRecord(models.Model):
     )
     avg_price = models.DecimalField(
         max_digits=32, decimal_places=16, default=0,
-        verbose_name='平均成交价'
+        verbose_name='平均成交价 (Binance 实际均价)'
+    )
+    commission = models.DecimalField(
+        max_digits=32, decimal_places=16, default=0,
+        verbose_name='手续费'
+    )
+    commission_asset = models.CharField(
+        max_length=10, blank=True, default='',
+        verbose_name='手续费币种'
     )
     payload_json = models.TextField(
         blank=True, default='',
