@@ -124,13 +124,32 @@ async function save() {
       if (!data.api_secret) delete data.api_secret
       await compoundApi.updateAccount(form.value.id, data)
     } else {
+      console.log('Saving new account:', { ...form.value, api_secret: '***' })
       await compoundApi.createAccount(form.value)
     }
     ElMessage.success('保存成功')
     dialogVisible.value = false
     await refreshList()
   } catch (e) {
-    ElMessage.error('保存失败: ' + (e.response?.data?.detail || e.message))
+    console.error('Save error:', e)
+    let msg = ''
+    if (e.response) {
+      msg = 'HTTP ' + e.response.status + ': '
+      const data = e.response.data
+      if (typeof data === 'string') {
+        msg += data
+      } else if (data) {
+        // 处理字段验证错误
+        const errors = []
+        for (const [field, msgs] of Object.entries(data)) {
+          errors.push(field + ': ' + (Array.isArray(msgs) ? msgs.join(', ') : msgs))
+        }
+        msg += errors.join('; ')
+      }
+    } else {
+      msg = e.message
+    }
+    ElMessage.error('保存失败: ' + msg)
   }
 }
 
