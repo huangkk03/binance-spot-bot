@@ -56,7 +56,7 @@
         <!-- 3. 入场价 -->
         <el-table-column label="入场价" width="95" align="right">
           <template #default="{ row }">
-            <span v-if="row.entryPrice > 0">{{ fmt(row.entryPrice) }}</span>
+            <span v-if="row.entryPrice > 0">{{ fmt(row.entryPrice, row.symbol) }}</span>
             <span v-else class="dim">—</span>
           </template>
         </el-table-column>
@@ -111,9 +111,9 @@
         <el-table-column label="止盈/止损" width="140" align="right">
           <template #default="{ row }">
             <template v-if="row.isOpen && row.tpPrice > 0">
-              <span class="tp-tag">{{ fmt(row.tpPrice) }}</span>
+              <span class="tp-tag">{{ fmt(row.tpPrice, row.symbol) }}</span>
               <span class="divider">/</span>
-              <span v-if="row.slPrice > 0" class="sl-tag">{{ fmt(row.slPrice) }}</span>
+              <span v-if="row.slPrice > 0" class="sl-tag">{{ fmt(row.slPrice, row.symbol) }}</span>
               <span v-else class="dim">关</span>
             </template>
             <span v-else class="dim">—</span>
@@ -194,9 +194,10 @@ const instanceDetails = computed(() => {
   })
 })
 
-function fmt(v) {
+function fmt(v, symbol) {
   if (!v && v !== 0) return '-'
-  return Number(v).toFixed(2)
+  const dec = symbol ? getDecimals(symbol) : 2
+  return Number(v).toFixed(dec)
 }
 
 function getDecimals(symbol) {
