@@ -33,10 +33,10 @@
         </template>
       </el-table-column>
       <el-table-column label="锚定价" width="100" align="right">
-        <template #default="{ row }">{{ fmt(row.anchor_price) }}</template>
+        <template #default="{ row }">{{ fmtPrice(row.anchor_price, row.symbol) }}</template>
       </el-table-column>
       <el-table-column label="开仓价" width="100" align="right">
-        <template #default="{ row }">{{ fmt(row.cycle_start_price) }}</template>
+        <template #default="{ row }">{{ fmtPrice(row.cycle_start_price, row.symbol) }}</template>
       </el-table-column>
       <el-table-column label="数量" width="90" align="right">
         <template #default="{ row }">{{ fmtQty(row.base_qty) }}</template>
@@ -79,7 +79,9 @@ async function executeOpen() {
   finally { loading.value = false }
 }
 
+function getDec(symbol) { return symbol === 'ADAUSDT' ? 4 : symbol === 'DOGEUSDT' ? 5 : 2 }
 function fmt(v) { return v ? Number(v).toFixed(2) : '-' }
+function fmtPrice(v, s) { return v ? Number(v).toFixed(getDec(s)) : '-' }
 function fmtQty(v) { return v ? Number(v).toFixed(4) : '-' }
 
 onMounted(() => { refresh(); timer = setInterval(refresh, 10000) })
