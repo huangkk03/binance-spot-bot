@@ -32,38 +32,96 @@
         <el-button size="small" @click="refreshInstances" round>刷新</el-button>
       </div>
       <el-table :data="instanceDetails" size="small" stripe>
-        <el-table-column label="交易对" width="120">
+        <!-- 1. 交易对#ID -->
+        <el-table-column label="交易对" width="110">
           <template #default="{ row }">
             <span class="symbol-link">{{ row.symbol }}<span class="instance-id">#{{ row.instance_id }}</span></span>
           </template>
         </el-table-column>
-        <el-table-column prop="isOpen" label="状态" width="72">
+
+        <!-- 2. 状态·周期 -->
+        <el-table-column label="状态·周期" width="110">
           <template #default="{ row }">
-            <span class="status-dot" :class="row.isOpen ? 'open' : 'closed'" />
-            {{ row.isOpen ? '持仓' : '已平' }}
+            <template v-if="row.isOpen">
+              <span class="status-dot open" />持仓·第{{ row.cycle_id || 1 }}轮
+            </template>
+            <template v-else>
+              <span class="status-dot closed" />
+              {{ row.cycle_id > 0 ? '等待入场' : '新创建' }}
+              <span v-if="row.cycle_id > 0" class="dim cycle-hint">{{ row.cycle_id }}轮已结</span>
+            </template>
           </template>
         </el-table-column>
-        <el-table-column prop="cycleId" label="周期" width="48" align="center" />
-        <el-table-column label="锚定价" width="100" align="right">
-          <template #default="{ row }">{{ fmt(row.anchor_price) }}</template>
-        </el-table-column>
-        <el-table-column label="开仓价" width="100" align="right">
-          <template #default="{ row }">{{ fmt(row.cycle_start_price) }}</template>
-        </el-table-column>
-        <el-table-column label="数量" width="90" align="right">
-          <template #default="{ row }">{{ formatQty(row.base_qty) }}</template>
-        </el-table-column>
-        <el-table-column label="复利金额" width="100" align="right">
-          <template #default="{ row }">{{ fmt(row.quote_amount) }}</template>
-        </el-table-column>
-        <el-table-column label="盈亏/USDT" width="100" align="right">
+
+        <!-- 3. 入场价 -->
+        <el-table-column label="入场价" width="95" align="right">
           <template #default="{ row }">
-            <span :class="Number(row.uPnLPct) >= 0 ? 'profit-positive' : 'profit-negative'">
-              {{ Number(row.uPnLPct) >= 0 ? '+' : '' }}{{ Number(row.uPnLPct).toFixed(2) }}
-            </span>
+            <span v-if="row.entryPrice > 0">{{ fmt(row.entryPrice) }}</span>
+            <span v-else class="dim">—</span>
           </template>
         </el-table-column>
-        <el-table-column label="标记价" width="100" align="right">
+
+        <!-- 4. 投入(USDT) -->
+        <el-table-column label="投入(USDT)" width="100" align="right">
+          <template #default="{ row }">
+            <span v-if="row.isOpen && row.spentQuote > 0" class="spent-value">{{ fmt(row.spentQuote) }}</span>
+            <span v-else class="dim">—</span>
+          </template>
+        </el-table-column>
+
+        <!-- 5. 持仓 -->
+        <el-table-column label="持仓" width="90" align="right">
+          <template #default="{ row }">
+            <span v-if="row.isOpen && row.baseQty > 0">{{ formatQty(row.baseQty) }}</span>
+            <span v-else class="dim">—</span>
+          </template>
+        </el-table-column>
+
+        <!-- 6. 盈利 (核心列) -->
+        <el-table-column label="盈利" width="135" align="right">
+          <template #default="{ row }">
+            <!-- 开仓中：浮盈 -->
+            <template v-if="row.isOpen">
+              <div :class="row.openProfitPct >= 0 ? 'profit-positive' : 'profit-negative'">
+                {{ row.openProfitPct >= 0 ? '+' : '' }}{{ row.openProfitPct.toFixed(2) }}%
+              </div>
+              <div class="profit-sub" :class="row.openProfitUsdt >= 0 ? 'profit-positive' : 'profit-negative'">
+                {{ row.openProfitUsdt >= 0 ? '+' : '' }}{{ row.openProfitUsdt.toFixed(2) }} USDT
+              </div>
+            </template>
+            <!-- 已平仓：累计 -->
+            <template v-else>
+              <div :class="row.cumProfit >= 0 ? 'profit-positive' : 'profit-negative'">
+                {{ row.cumProfit >= 0 ? '+' : '' }}{{ row.cumProfit.toFixed(2) }}
+              </div>
+              <div class="profit-sub dim">累计 (已扣费)</div>
+            </template>
+          </template>
+        </el-table-column>
+
+        <!-- 7. 复利本金 -->
+        <el-table-column label="复利本金" width="110" align="right">
+          <template #default="{ row }">
+            <span v-if="row.quoteAmount > 0" class="compound-value">{{ fmt(row.quoteAmount) }}</span>
+            <span v-else class="dim">—</span>
+          </template>
+        </el-table-column>
+
+        <!-- 8. 止盈/止损 -->
+        <el-table-column label="止盈/止损" width="140" align="right">
+          <template #default="{ row }">
+            <template v-if="row.isOpen && row.tpPrice > 0">
+              <span class="tp-tag">{{ fmt(row.tpPrice) }}</span>
+              <span class="divider">/</span>
+              <span v-if="row.slPrice > 0" class="sl-tag">{{ fmt(row.slPrice) }}</span>
+              <span v-else class="dim">关</span>
+            </template>
+            <span v-else class="dim">—</span>
+          </template>
+        </el-table-column>
+
+        <!-- 9. 标记价 -->
+        <el-table-column label="标记价" width="95" align="right">
           <template #default="{ row }">{{ fmt(row.markPrice) }}</template>
         </el-table-column>
       </el-table>
@@ -104,9 +162,36 @@ function getPriceFlash(sym) {
 
 const instanceDetails = computed(() => {
   return store.instances.map(inst => {
-    const currentPrice = Number(store.prices[inst.symbol]) || 0
-    const cumulativeProfit = Number(inst.cumulative_profit) || 0
-    return { ...inst, uPnLPct: cumulativeProfit, markPrice: currentPrice }
+    const markPrice   = Number(store.prices[inst.symbol]) || 0
+    const entryPrice  = Number(inst.cycle_start_price) || 0
+    const baseQty     = Number(inst.base_qty) || 0
+    const spentQuote  = Number(inst.spent_quote) || 0
+    const quoteAmount = Number(inst.quote_amount) || 0
+    const cumProfit   = Number(inst.cumulative_profit) || 0
+
+    // 开仓中浮盈计算
+    const openProfitPct  = entryPrice > 0 && inst.isOpen
+      ? (markPrice - entryPrice) / entryPrice * 100 : 0
+    const openProfitUsdt = entryPrice > 0 && inst.isOpen
+      ? spentQuote * (markPrice - entryPrice) / entryPrice : 0
+
+    // 止盈/止损触发价 (基于后端默认 3%/10%, 实际由后端策略决定)
+    const tpPrice = entryPrice > 0 ? entryPrice * 1.03 : 0
+    const slPrice = entryPrice > 0 ? entryPrice * 0.90 : 0
+
+    return {
+      ...inst,
+      markPrice,
+      entryPrice,
+      baseQty,
+      spentQuote,
+      quoteAmount,
+      cumProfit,
+      openProfitPct,
+      openProfitUsdt,
+      tpPrice,
+      slPrice,
+    }
   })
 })
 
@@ -256,7 +341,7 @@ onUnmounted(() => clearInterval(refreshTimer))
 
 .status-dot {
   display: inline-block;
-  width: 6px; height: 6px;
+  width: 7px; height: 7px;
   border-radius: 50%;
   margin-right: 4px;
   vertical-align: middle;
@@ -264,10 +349,38 @@ onUnmounted(() => clearInterval(refreshTimer))
 .status-dot.open { background: var(--positive); box-shadow: 0 0 6px var(--positive); }
 .status-dot.closed { background: var(--text-muted); }
 
-.profit-positive { color: var(--positive); font-weight: 600; }
-.profit-negative { color: var(--negative); font-weight: 600; }
+.cycle-hint { display: block; font-size: 10px; margin-top: 1px; }
 
-:deep(.el-table .cell) { padding: 6px 8px; }
-:deep(.el-table td.el-table__cell) { padding: 4px 0; }
-:deep(.el-table__body-wrapper tbody tr) { height: 36px; }
+.spent-value { font-weight: 600; color: var(--text-primary); }
+.profit-positive { color: var(--positive); font-weight: 700; font-size: 13px; }
+.profit-negative { color: var(--negative); font-weight: 700; font-size: 13px; }
+.profit-sub { font-size: 10px; line-height: 1.2; }
+
+.compound-value { color: var(--accent); font-weight: 700; }
+
+.tp-tag {
+  display: inline-block;
+  padding: 1px 6px;
+  background: var(--positive-bg);
+  color: var(--positive);
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.divider { color: var(--text-muted); margin: 0 3px; }
+.sl-tag {
+  display: inline-block;
+  padding: 1px 6px;
+  background: var(--negative-bg);
+  color: var(--negative);
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.dim { color: var(--text-muted); }
+
+:deep(.el-table .cell) { padding: 6px 8px; line-height: 1.3; }
+:deep(.el-table td.el-table__cell) { padding: 6px 0; }
+:deep(.el-table__body-wrapper tbody tr) { height: 48px; }
 </style>
