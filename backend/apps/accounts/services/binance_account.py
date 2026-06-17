@@ -25,26 +25,28 @@ class BinanceAccountService:
         self.client = self._build_client()
 
     def _build_client(self) -> Client:
-        """构造 python-binance Client"""
-        # 优先使用全局代理 (settings.BINANCE_PROXY_URL)
-        global_proxy = getattr(settings, 'BINANCE_PROXY_URL', '') or os.environ.get('BINANCE_PROXY_URL', '')
-        account_proxy = self.account.proxy_url if (self.account.use_proxy and self.account.proxy_url) else ''
+        """构造 python-binance Client
 
-        # 决定使用哪个代理
-        proxy_url = account_proxy or global_proxy
-
+        重要: 仅在账户级别需要代理时才设置 (REST API 通常不需要代理)
+        WebSocket 代理在 binance_ws.py 中单独处理
+        """
         client_kwargs = {
             'api_key': self.account.api_key,
             'api_secret': self.account.get_secret(),
             'testnet': self.account.testnet,
         }
 
-        if proxy_url:
-            # 关键修复：通过 requests_params 封装 proxies 参数
-            # Client.__init__ 接受 requests_params (字典)，不是直接的 proxies
-            client_kwargs['requests_params'] = {'proxies': {'http': proxy_url, 'https': proxy_url}}
-            logger.info(f'Binance client using proxy: {proxy_url}')
+        # 仅当账户显式配置代理时才使用 (use_proxy=True + proxy_url 非空)
+        if self.account.use_proxy and self.account.proxy_url:
+            client_kwargs['requests_params'] = {
+                'proxies': {
+                    'http': self.account.proxy_url,
+                    'https': self.account.proxy_url,
+                }
+            }
+            logger.info(f'Binance client using account proxy: {self.account.proxy_url}')
 
+        logger.debug(f'Building client: testnet={client_kwargs["testnet"]}, proxy_enabled={self.account.use_proxy}')
         return Client(**client_kwargs)
 
     def get_account_info(self) -> Optional[Dict]:
@@ -53,15 +55,18 @@ class BinanceAccountService:
         端点: GET /api/v3/account
         """
         try:
-            return self.client.get_account()
+            logger.info(f'Calling get_account_info: testnet={self.account.testnet}')
+            result = self.client.get_account()
+            logger.info(f'get_account_info OK: canTrade={result.get("canTrade")}')
+            return result
         except BinanceAPIException as e:
-            logger.error(f'Binance API error: {e.status_code} {e.message}')
+            logger.error(f'Binance API error ({e.status_code}): {e.message}')
             return None
         except BinanceRequestException as e:
-            logger.error(f'Binance request error: {e}')
+            logger.error(f'Binance request error: {type(e).__name__}: {e}')
             return None
         except Exception as e:
-            logger.error(f'Unexpected error fetching account info: {e}')
+            logger.error(f'Unexpected error fetching account info: {type(e).__name__}: {e}', exc_info=True)
             return None
 
     def get_balance(self, asset: str) -> Optional[Dict]:
@@ -117,13 +122,16 @@ class BinanceAccountService:
     def test_connection(self) -> Dict:
         """
         测试 API 凭据是否有效
-        返回: { 'success': bool, 'message': str, 'account_info': dict (optional) }
+        返回: { 'success': bool, 'message': str }
         """
+        logger.info(f'Testing connection: testnet={self.account.testnet}, use_proxy={self.account.use_proxy}')
         try:
             info = self.get_account_info()
             if info is None:
+                logger.warning('test_connection: get_account_info returned None')
                 return {'success': False, 'message': '无法连接到 Binance API'}
 
+            logger.info(f'Connection OK: canTrade={info.get("canTrade")}, accountType={info.get("accountType")}')
             return {
                 'success': True,
                 'message': '连接成功',
@@ -131,6 +139,8 @@ class BinanceAccountService:
                 'account_type': info.get('accountType', ''),
             }
         except BinanceAPIException as e:
+            logger.error(f'Binance API error: {e.status_code} {e.message}')
             return {'success': False, 'message': f'API 错误: {e.message}'}
         except Exception as e:
+            logger.error(f'Connection test exception: {type(e).__name__}: {e}', exc_info=True)
             return {'success': False, 'message': f'连接失败: {str(e)}'}

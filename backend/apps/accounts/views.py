@@ -108,15 +108,20 @@ def account_test(request):
     """
     POST /api/v1/accounts/test
     测试 API 凭据（不存储）
-    Body: { api_key, api_secret, testnet, proxy_url }
     """
+    import logging
+    logger = logging.getLogger(__name__)
+
     api_key = request.data.get('api_key')
     api_secret = request.data.get('api_secret')
     testnet = request.data.get('testnet', True)
     use_proxy = request.data.get('use_proxy', False)
     proxy_url = request.data.get('proxy_url', '')
 
+    logger.info(f'test account: key_prefix={api_key[:8] if api_key else "N/A"}, testnet={testnet}, use_proxy={use_proxy}')
+
     if not api_key or not api_secret:
+        logger.warning('test account: missing api_key or api_secret')
         return Response(
             {'success': False, 'message': 'api_key 和 api_secret 必填'},
             status=status.HTTP_400_BAD_REQUEST
@@ -126,7 +131,7 @@ def account_test(request):
     class TempAccount:
         def __init__(self):
             self.api_key = api_key
-            self.api_secret = api_secret  # 直接传明文
+            self.api_secret = api_secret
             self.testnet = testnet
             self.use_proxy = use_proxy
             self.proxy_url = proxy_url
@@ -134,9 +139,17 @@ def account_test(request):
         def get_secret(self):
             return self.api_secret
 
-    service = BinanceAccountService(TempAccount())
-    result = service.test_connection()
-    return Response(result)
+    try:
+        service = BinanceAccountService(TempAccount())
+        result = service.test_connection()
+        logger.info(f'test result: success={result.get("success")}, msg={result.get("message")}')
+        return Response(result)
+    except Exception as e:
+        logger.error(f'test account exception: {type(e).__name__}: {e}', exc_info=True)
+        return Response(
+            {'success': False, 'message': f'服务器异常: {str(e)}'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
 
 
 @api_view(['GET'])
