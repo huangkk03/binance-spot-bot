@@ -330,6 +330,7 @@ class TradingEngine:
             return {'success': False, 'errors': ['没有激活的交易账户']}
 
         # 找一个未开仓的实例，或创建新实例
+        is_new_instance = False
         inst = CycleInstance.objects.filter(symbol=symbol, is_open=False).first()
         if not inst:
             # 需要创建新实例前检查 MAX_INSTANCES 限制
@@ -341,7 +342,7 @@ class TradingEngine:
                     'errors': [f'该交易对已达到最大实例数 ({max_instances})，无法创建新实例。请先复利或手动平仓现有实例。']
                 }
 
-            # 创建新实例
+            # 创建新实例 (临时, 买成功后保留, 失败后删除)
             next_id = current_count + 1
             inst = CycleInstance.objects.create(
                 symbol=symbol,
@@ -349,12 +350,20 @@ class TradingEngine:
                 is_open=False,
                 quote_amount=quote_amount,
             )
+            is_new_instance = True
 
         price = PriceCacheService.get_price(symbol)
         if not price or price <= 0:
+            if is_new_instance:
+                inst.delete()
             return {'success': False, 'errors': ['无法获取价格']}
 
         result = self._execute_buy(inst, price, quote_amount)
-        if result:
-            return {'success': True, 'message': result}
-        return {'success': False, 'errors': ['下单失败']}
+        if not result and is_new_instance:
+            # 开仓失败, 删除新创建的实例 (避免孤例)
+            inst.delete()
+            return {'success': False, 'errors': ['下单失败，实例已回滚']}
+        elif not result:
+            return {'success': False, 'errors': ['下单失败']}
+
+        return {'success': True, 'message': result}
