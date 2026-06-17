@@ -15,8 +15,8 @@
             <span class="price-symbol">{{ sym.replace('USDT', '') }}</span>
             <span class="price-pair">/USDT</span>
           </div>
-          <div class="price-value" :ref="el => priceRefs[sym] = el">
-            {{ formatPrice(store.prices[sym]) }}
+          <div class="price-value">
+            {{ formatPrice(store.prices[sym], sym) }}
           </div>
           <div v-if="getTdInfo(sym)" class="td-badge" :class="getTdInfo(sym).class">
             {{ getTdInfo(sym).text }}
@@ -122,7 +122,7 @@
 
         <!-- 9. 标记价 -->
         <el-table-column label="标记价" width="95" align="right">
-          <template #default="{ row }">{{ fmt(row.markPrice) }}</template>
+          <template #default="{ row }">{{ formatMarkPrice(row) }}</template>
         </el-table-column>
       </el-table>
     </section>
@@ -130,7 +130,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { useCompoundStore } from '../stores/compound'
 import { compoundApi } from '../api/compound'
 import { ElMessage } from 'element-plus'
@@ -138,7 +138,6 @@ import { ElMessage } from 'element-plus'
 const store = useCompoundStore()
 const symbols = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'ADAUSDT', 'DOGEUSDT', 'SOLUSDT']
 const reportLoading = ref(false)
-const priceRefs = ref({})
 
 // 跟踪每个币种的上次价格用于判断涨跌
 const lastPrices = ref({})
@@ -200,9 +199,23 @@ function fmt(v) {
   return Number(v).toFixed(2)
 }
 
-function formatPrice(v) {
+function getDecimals(symbol) {
+  if (!symbol) return 2
+  const s = symbol.toUpperCase()
+  if (s === 'ADAUSDT') return 4
+  if (s === 'DOGEUSDT') return 5
+  return 2
+}
+
+function formatPrice(v, symbol) {
   if (!v && v !== 0) return '-'
-  return Number(v).toFixed(2)
+  return Number(v).toFixed(getDecimals(symbol))
+}
+
+function formatMarkPrice(row) {
+  const v = row.markPrice
+  if (!v && v !== 0) return '-'
+  return Number(v).toFixed(getDecimals(row.symbol))
 }
 
 function formatQty(v) {
