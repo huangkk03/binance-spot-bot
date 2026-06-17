@@ -1,43 +1,46 @@
 <template>
   <div class="app-layout">
-    <!-- 左侧侧边栏 (hover 展开) -->
-    <aside class="sidebar" :class="{ expanded: sidebarExpanded }" @mouseenter="sidebarExpanded = true" @mouseleave="sidebarExpanded = false">
+    <!-- 左侧侧边栏 (hover 展开 + 固定按钮) -->
+    <aside class="sidebar" :class="{ expanded: sidebarExpanded || pinned }" @mouseenter="sidebarExpanded = true" @mouseleave="sidebarExpanded = pinned">
       <div class="sidebar-brand">
         <div class="brand-icon">B</div>
-        <span class="brand-text" v-show="sidebarExpanded">Binance Bot</span>
+        <span class="brand-text" v-show="sidebarExpanded || pinned">Binance Bot</span>
+        <button class="pin-btn" :class="{ active: pinned }" @click="pinned = !pinned" :title="pinned ? '取消固定' : '固定展开'">
+          <el-icon :size="14"><component :is="pinned ? 'Lock' : 'Unlock'" /></el-icon>
+        </button>
       </div>
 
       <nav class="sidebar-nav">
         <router-link to="/trading" class="nav-item" :class="{ active: $route.path === '/trading' }">
           <el-icon :size="20"><Setting /></el-icon>
-          <span class="nav-label" v-show="sidebarExpanded">交易控制台</span>
+          <span class="nav-label" v-show="sidebarExpanded || pinned">交易控制台</span>
         </router-link>
         <router-link to="/dashboard" class="nav-item" :class="{ active: $route.path === '/dashboard' }">
           <el-icon :size="20"><DataLine /></el-icon>
-          <span class="nav-label" v-show="sidebarExpanded">Dashboard</span>
+          <span class="nav-label" v-show="sidebarExpanded || pinned">Dashboard</span>
         </router-link>
         <router-link to="/strategy" class="nav-item" :class="{ active: $route.path === '/strategy' }">
           <el-icon :size="20"><Histogram /></el-icon>
-          <span class="nav-label" v-show="sidebarExpanded">策略配置</span>
+          <span class="nav-label" v-show="sidebarExpanded || pinned">策略配置</span>
         </router-link>
         <router-link to="/accounts" class="nav-item" :class="{ active: $route.path === '/accounts' }">
           <el-icon :size="20"><Wallet /></el-icon>
-          <span class="nav-label" v-show="sidebarExpanded">账户余额</span>
+          <span class="nav-label" v-show="sidebarExpanded || pinned">账户余额</span>
         </router-link>
         <router-link to="/history" class="nav-item" :class="{ active: $route.path === '/history' }">
           <el-icon :size="20"><Document /></el-icon>
-          <span class="nav-label" v-show="sidebarExpanded">历史</span>
+          <span class="nav-label" v-show="sidebarExpanded || pinned">历史</span>
         </router-link>
         <router-link to="/settings" class="nav-item" :class="{ active: $route.path === '/settings' }">
           <el-icon :size="20"><Tools /></el-icon>
-          <span class="nav-label" v-show="sidebarExpanded">设置</span>
+          <span class="nav-label" v-show="sidebarExpanded || pinned">设置</span>
         </router-link>
       </nav>
 
       <div class="sidebar-footer">
         <button class="logout-btn" @click="handleLogout" :title="'登出 — ' + auth.username">
           <el-icon :size="18"><SwitchButton /></el-icon>
-          <span class="nav-label" v-show="sidebarExpanded">登出</span>
+          <span class="nav-label" v-show="sidebarExpanded || pinned">登出</span>
         </button>
       </div>
     </aside>
@@ -84,6 +87,7 @@ const auth = useAuthStore()
 const store = useCompoundStore()
 
 const sidebarExpanded = ref(false)
+const pinned = ref(false)
 const refreshing = ref(false)
 let expiryTimer = null
 
@@ -161,9 +165,9 @@ onUnmounted(() => {
   height: var(--header-height);
   display: flex;
   align-items: center;
-  padding: 0 14px;
+  padding: 0 12px;
   border-bottom: 1px solid var(--border-light);
-  gap: 12px;
+  gap: 10px;
   overflow: hidden;
   flex-shrink: 0;
 }
@@ -187,12 +191,38 @@ onUnmounted(() => {
   font-size: 14px;
   font-weight: 600;
   white-space: nowrap;
-  opacity: 0;
-  transition: opacity 0.3s;
+  flex: 1;
 }
 
-.sidebar.expanded .brand-text {
-  opacity: 1;
+.pin-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  border: 1px solid var(--border-color);
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+  transition: all var(--transition);
+}
+
+.sidebar.expanded .pin-btn {
+  display: flex;
+}
+
+.pin-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.pin-btn.active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--bg-accent-dim);
 }
 
 /* ========== 导航 ========== */
@@ -249,7 +279,6 @@ onUnmounted(() => {
 }
 
 .nav-label {
-  opacity: 0;
   transition: opacity 0.3s;
 }
 
