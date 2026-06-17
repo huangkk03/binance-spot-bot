@@ -65,7 +65,6 @@ class BinanceMarketStream:
         self._running = False
         self._thread: threading.Thread = None
         self._loop: asyncio.AbstractEventLoop = None
-        self._first_trade_logged = False
         self._session: aiohttp.ClientSession = None
 
     def start(self):
@@ -152,13 +151,16 @@ class BinanceMarketStream:
                 if msg.type == aiohttp.WSMsgType.TEXT:
                     try:
                         data = json.loads(msg.data)
-                        # 启动后第一次收到 trade 打印 INFO
-                        if not self._first_trade_logged:
+                        # 调试日志 (每个币种第一次到达打印)
+                        if data.get('stream'):
+                            stream = data.get('stream')
                             inner = data.get('data', {})
                             sym = inner.get('s', '?')
                             price = inner.get('p', '?')
-                            logger.info(f'WS first trade received: {sym} @ {price}')
-                            self._first_trade_logged = True
+                            # 每 10 秒最多打 1 次 INFO
+                            if not hasattr(self, '_last_log_time') or time.time() - self._last_log_time > 10:
+                                logger.info(f'WS trade sample: {sym} @ {price} (stream={stream})')
+                                self._last_log_time = time.time()
                         self._handle_trade_message(data)
                     except json.JSONDecodeError:
                         logger.warning(f'Invalid JSON: {msg.data[:100]}')

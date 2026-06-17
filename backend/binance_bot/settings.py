@@ -270,7 +270,7 @@ LOGGING = {
     'loggers': {
         'apps': {
             'handlers': ['console'],
-            'level': 'INFO',
+            'level': 'DEBUG',
             'propagate': False,
         },
     },

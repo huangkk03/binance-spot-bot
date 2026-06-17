@@ -40,14 +40,9 @@ class BinanceAccountService:
         }
 
         if proxy_url:
-            # python-binance 1.0.x: 通过 requests_params 传 proxies 给底层 requests
-            # 参考: https://github.com/binance/binance-spot-api-docs
-            client_kwargs['requests_params'] = {
-                'proxies': {'http': proxy_url, 'https': proxy_url}
-            }
-            # 同时设置环境变量 (给 aiohttp 等子进程用)
-            os.environ['HTTP_PROXY'] = proxy_url
-            os.environ['HTTPS_PROXY'] = proxy_url
+            # 关键修复：通过 requests_params 封装 proxies 参数
+            # Client.__init__ 接受 requests_params (字典)，不是直接的 proxies
+            client_kwargs['requests_params'] = {'proxies': {'http': proxy_url, 'https': proxy_url}}
             logger.info(f'Binance client using proxy: {proxy_url}')
 
         return Client(**client_kwargs)
