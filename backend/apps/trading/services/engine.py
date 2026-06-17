@@ -190,18 +190,23 @@ class TradingEngine:
             executed_qty = Decimal(order_result['executed_qty'])
             cummulative_quote_qty = Decimal(order_result['cummulative_quote_qty'])
 
+            # 实际成交均价 = 总成交金额 / 总成交数量
+            actual_avg_price = cummulative_quote_qty / executed_qty if executed_qty > 0 else price
+
+            logger.info(f'BUY {symbol}: cached_price={price} actual_avg={actual_avg_price} qty={executed_qty} spent={cummulative_quote_qty}')
+
             # 记录交易
             with transaction.atomic():
-                # 更新实例
+                # 更新实例 (使用实际成交均价)
                 inst.is_open = True
                 inst.base_qty = executed_qty
                 inst.spent_quote = cummulative_quote_qty
                 inst.quote_amount = cummulative_quote_qty  # 复利：本次花费=下次可用
-                inst.cycle_start_price = price
-                inst.last_action_price = price
-                inst.reentry_price = Decimal('0')  # 开仓时清零
+                inst.cycle_start_price = actual_avg_price   # ← 关键修复：用实际成交价
+                inst.last_action_price = actual_avg_price
+                inst.reentry_price = Decimal('0')
                 if inst.anchor_price == 0:
-                    inst.anchor_price = price
+                    inst.anchor_price = actual_avg_price    # ← 也用实际成交价
                 inst.cycle_id = inst.cycle_id + 1
                 inst.save()
 
@@ -213,7 +218,7 @@ class TradingEngine:
                     status=order_result['status'],
                     executed_qty=executed_qty,
                     cummulative_quote_qty=cummulative_quote_qty,
-                    avg_price=price if executed_qty == 0 else cummulative_quote_qty / executed_qty,
+                    avg_price=actual_avg_price,
                     payload_json=str(order_result.get('raw', {})),
                 )
 
@@ -222,7 +227,7 @@ class TradingEngine:
                     symbol=symbol,
                     instance_id=inst.instance_id,
                     cycle_id=inst.cycle_id,
-                    start_price=price,
+                    start_price=actual_avg_price,
                     quote_amount=cummulative_quote_qty,
                     opened_at=timezone.now(),
                 )
@@ -233,13 +238,13 @@ class TradingEngine:
                     instance_id=inst.instance_id,
                     cycle_id=inst.cycle_id,
                     event='BUY_OPEN',
-                    price=price,
+                    price=actual_avg_price,
                     base_qty=executed_qty,
                     quote_amount=cummulative_quote_qty,
                     note=f'order_id={order_result["order_id"]}',
                 )
 
-            msg = f'BUY_OPEN: {symbol}#{inst.instance_id} cycle={inst.cycle_id} qty={executed_qty} at {price}'
+            msg = f'BUY_OPEN: {symbol}#{inst.instance_id} cycle={inst.cycle_id} qty={executed_qty} at {actual_avg_price}'
             logger.info(msg)
             return msg
 
