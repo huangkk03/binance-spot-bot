@@ -1,15 +1,16 @@
 <template>
   <div>
-    <h3>通知配置（企业微信 / 钉钉）</h3>
-    <el-form :model="form" label-width="160px">
-      <el-form-item label="Webhook URL">
-        <el-input v-model="form.url" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..." />
-      </el-form-item>
-      <el-form-item>
-        <el-button type="primary" @click="save">保存</el-button>
-        <el-button @click="test">发送测试通知</el-button>
-      </el-form-item>
-    </el-form>
+    <div class="config-grid">
+      <el-form label-width="120px">
+        <el-form-item label="Webhook URL">
+          <el-input v-model="form.url" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..." />
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" @click="save" round>保存</el-button>
+          <el-button @click="test" round>发送测试通知</el-button>
+        </el-form-item>
+      </el-form>
+    </div>
   </div>
 </template>
 
@@ -21,8 +22,7 @@ import { ElMessage } from 'element-plus'
 const form = ref({ url: '' })
 
 onMounted(async () => {
-  const r = await compoundApi.getConfigValue('WECHAT_WEBHOOK_URL').catch(() => null)
-  form.value.url = r?.value || ''
+  try { form.value.url = (await compoundApi.getConfigValue('WECHAT_WEBHOOK_URL')).value || '' } catch {}
 })
 
 async function save() {
@@ -31,12 +31,13 @@ async function save() {
 }
 
 async function test() {
-  if (!form.value.url) {
-    ElMessage.warning('请先填写 Webhook URL')
-    return
-  }
+  if (!form.value.url) { ElMessage.warning('请先填写 URL'); return }
   await compoundApi.setConfigValue('WECHAT_WEBHOOK_URL', form.value.url)
   await compoundApi.testNotification('测试', '这是一条来自 Binance Spot Bot 的测试通知。')
-  ElMessage.success('测试通知已发送')
+  ElMessage.success('已发送')
 }
 </script>
+
+<style scoped>
+.config-grid { max-width: 560px; }
+</style>

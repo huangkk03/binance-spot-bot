@@ -1,82 +1,78 @@
 <template>
-  <div class="dashboard">
-    <el-card class="header-card">
-      <div class="header-row">
-        <h2>Binance Spot Bot - 真实交易</h2>
-        <div class="account-info">
-          <el-tag v-if="activeAccount" type="success">激活: {{ activeAccount.account_name }}</el-tag>
-          <el-tag v-else type="warning">未激活账户</el-tag>
-        </div>
+  <div class="dashboard animate-fade-in">
+    <!-- 实时行情 -->
+    <section class="prices-section">
+      <div class="section-header">
+        <h2>实时行情</h2>
+        <el-button size="small" @click="generateBtcReport" :loading="reportLoading" round>
+          <el-icon :size="14"><Document /></el-icon>
+          BTC AI 报告
+        </el-button>
       </div>
-    </el-card>
-
-    <el-card class="section">
-      <template #header>
-        <div class="card-header">
-          <span>实时行情</span>
-          <el-button @click="generateBtcReport" :loading="reportLoading">生成 BTC AI 报告 (PDF)</el-button>
-        </div>
-      </template>
       <div class="prices-grid">
-        <div v-for="sym in symbols" :key="sym" class="price-card">
-          <div class="price-symbol">{{ sym }}</div>
-          <div class="price-value">${{ formatPrice(store.prices[sym]) }}</div>
-          <div v-if="getTdInfo(sym)" class="td-info" :class="getTdInfo(sym).class">
+        <div v-for="sym in symbols" :key="sym" class="price-card" :class="getPriceFlash(sym)">
+          <div class="card-top">
+            <span class="price-symbol">{{ sym.replace('USDT', '') }}</span>
+            <span class="price-pair">/USDT</span>
+          </div>
+          <div class="price-value" :ref="el => priceRefs[sym] = el">
+            {{ formatPrice(store.prices[sym]) }}
+          </div>
+          <div v-if="getTdInfo(sym)" class="td-badge" :class="getTdInfo(sym).class">
             {{ getTdInfo(sym).text }}
           </div>
         </div>
       </div>
-    </el-card>
+    </section>
 
-    <el-card class="section">
-      <template #header>
-        <div class="card-header">
-          <span>交易实例</span>
-          <el-button size="small" @click="refreshInstances">刷新</el-button>
-        </div>
-      </template>
-      <el-table :data="instanceDetails" stripe>
-        <el-table-column prop="symbolId" label="交易对" width="140" />
-        <el-table-column prop="isOpen" label="状态" width="80">
+    <!-- 交易实例 -->
+    <section class="instances-section">
+      <div class="section-header">
+        <h2>交易实例</h2>
+        <el-button size="small" @click="refreshInstances" round>刷新</el-button>
+      </div>
+      <el-table :data="instanceDetails" size="small" stripe>
+        <el-table-column label="交易对" width="120">
           <template #default="{ row }">
-            <el-tag :type="row.isOpen ? 'success' : 'info'" size="small">
-              {{ row.isOpen ? '持仓中' : '已平仓' }}
-            </el-tag>
+            <span class="symbol-link">{{ row.symbol }}<span class="instance-id">#{{ row.instance_id }}</span></span>
           </template>
         </el-table-column>
-        <el-table-column prop="cycleId" label="周期" width="60" />
-        <el-table-column prop="anchorPrice" label="锚定价" width="120">
-          <template #default="{ row }">{{ formatPrice(row.anchorPrice) }}</template>
-        </el-table-column>
-        <el-table-column prop="cycleStartPrice" label="开仓价" width="120">
-          <template #default="{ row }">{{ formatPrice(row.cycleStartPrice) }}</template>
-        </el-table-column>
-        <el-table-column prop="baseQty" label="数量" width="100">
-          <template #default="{ row }">{{ formatQty(row.baseQty) }}</template>
-        </el-table-column>
-        <el-table-column prop="quoteAmount" label="权益" width="100">
-          <template #default="{ row }">{{ formatPrice(row.quoteAmount) }}</template>
-        </el-table-column>
-        <el-table-column prop="uPnL" label="未实现盈亏" width="100">
-          <template #default="{ row }">{{ formatPrice(row.uPnL) }}</template>
-        </el-table-column>
-        <el-table-column prop="uPnLPct" label="盈亏/USDT" width="100">
+        <el-table-column prop="isOpen" label="状态" width="72">
           <template #default="{ row }">
-            <span :class="Number(row.uPnLPct) >= 0 ? 'positive' : 'negative'">
-              {{ Number(row.uPnLPct) >= 0 ? '+' : '' }}{{ formatPrice(row.uPnLPct) }}
+            <span class="status-dot" :class="row.isOpen ? 'open' : 'closed'" />
+            {{ row.isOpen ? '持仓' : '已平' }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="cycleId" label="周期" width="48" align="center" />
+        <el-table-column label="锚定价" width="100" align="right">
+          <template #default="{ row }">{{ fmt(row.anchor_price) }}</template>
+        </el-table-column>
+        <el-table-column label="开仓价" width="100" align="right">
+          <template #default="{ row }">{{ fmt(row.cycle_start_price) }}</template>
+        </el-table-column>
+        <el-table-column label="数量" width="90" align="right">
+          <template #default="{ row }">{{ formatQty(row.base_qty) }}</template>
+        </el-table-column>
+        <el-table-column label="复利金额" width="100" align="right">
+          <template #default="{ row }">{{ fmt(row.quote_amount) }}</template>
+        </el-table-column>
+        <el-table-column label="盈亏/USDT" width="100" align="right">
+          <template #default="{ row }">
+            <span :class="Number(row.uPnLPct) >= 0 ? 'profit-positive' : 'profit-negative'">
+              {{ Number(row.uPnLPct) >= 0 ? '+' : '' }}{{ Number(row.uPnLPct).toFixed(2) }}
             </span>
           </template>
         </el-table-column>
-        <el-table-column prop="markPrice" label="标记价" width="120">
-          <template #default="{ row }">{{ formatPrice(row.markPrice) }}</template>
+        <el-table-column label="标记价" width="100" align="right">
+          <template #default="{ row }">{{ fmt(row.markPrice) }}</template>
         </el-table-column>
       </el-table>
-    </el-card>
+    </section>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch, nextTick } from 'vue'
 import { useCompoundStore } from '../stores/compound'
 import { compoundApi } from '../api/compound'
 import { ElMessage } from 'element-plus'
@@ -84,68 +80,61 @@ import { ElMessage } from 'element-plus'
 const store = useCompoundStore()
 const symbols = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'ADAUSDT', 'DOGEUSDT', 'SOLUSDT']
 const reportLoading = ref(false)
-let refreshTimer = null
+const priceRefs = ref({})
 
-const activeAccount = computed(() => {
-  const allAccounts = store.accounts.find?.(a => a.is_active) || null
-  return allAccounts
-})
+// 跟踪每个币种的上次价格用于判断涨跌
+const lastPrices = ref({})
+const priceFlash = ref({})
+
+watch(() => store.prices, (newPrices) => {
+  for (const sym of symbols) {
+    const price = Number(newPrices[sym])
+    const last = lastPrices.value[sym]
+    if (last && price !== last) {
+      priceFlash.value[sym] = price > last ? 'up' : 'down'
+      setTimeout(() => { priceFlash.value[sym] = '' }, 800)
+    }
+    lastPrices.value[sym] = price
+  }
+}, { deep: true })
+
+function getPriceFlash(sym) {
+  return priceFlash.value[sym] || ''
+}
 
 const instanceDetails = computed(() => {
   return store.instances.map(inst => {
-    const currentPrice = store.prices[inst.symbol] ? Number(store.prices[inst.symbol]) : 0
-    const anchorPrice = Number(inst.anchorPrice) || 0
-    const cycleStartPrice = Number(inst.cycleStartPrice) || 0
-    const baseQty = Number(inst.baseQty) || 0
-    const spentQuote = Number(inst.spentQuote) || 0
-    const quoteAmount = Number(inst.quoteAmount) || 0
-    const cumulativeProfit = Number(inst.cumulativeProfit) || 0
-
-    const uPnL = inst.isOpen && cycleStartPrice > 0
-        ? spentQuote * (currentPrice - cycleStartPrice) / cycleStartPrice / 100
-        : 0
-
-    return {
-      ...inst,
-      symbolId: `${inst.symbol}#${inst.instance_id}`,
-      uPnL: uPnL,
-      uPnLPct: cumulativeProfit,
-      markPrice: currentPrice,
-    }
+    const currentPrice = Number(store.prices[inst.symbol]) || 0
+    const cumulativeProfit = Number(inst.cumulative_profit) || 0
+    return { ...inst, uPnLPct: cumulativeProfit, markPrice: currentPrice }
   })
 })
 
-function formatPrice(value) {
-  if (!value && value !== 0) return '-'
-  return Number(value).toFixed(2)
+function fmt(v) {
+  if (!v && v !== 0) return '-'
+  return Number(v).toFixed(2)
 }
 
-function formatQty(value) {
-  if (!value) return '-'
-  return Number(value).toFixed(4)
+function formatPrice(v) {
+  if (!v && v !== 0) return '-'
+  return Number(v).toFixed(2)
 }
 
-function getTdInfo(symbol) {
-  const alert1h = store.alerts[`${symbol}_1h`]
-  const alert4h = store.alerts[`${symbol}_4h`]
-  if (!alert1h && !alert4h) return null
+function formatQty(v) {
+  if (!v) return '-'
+  return Number(v).toFixed(4)
+}
 
+function getTdInfo(sym) {
+  const a1 = store.alerts[sym + '_1h']
+  const a4 = store.alerts[sym + '_4h']
+  if (!a1 && !a4) return null
   const parts = []
-  if (alert1h) parts.push(`1H:${alert1h.td_count}`)
-  if (alert4h) parts.push(`4H:${alert4h.td_count}`)
-
-  const maxCount = Math.max(alert1h?.td_count || 0, alert4h?.td_count || 0)
-  const isBuy = alert1h?.alert_type === 'TD_BUY' || alert4h?.alert_type === 'TD_BUY'
-  const isSell = alert1h?.alert_type === 'TD_SELL' || alert4h?.alert_type === 'TD_SELL'
-
-  let tdClass = ''
-  if (maxCount >= 9) tdClass = isBuy ? 'td-buy' : isSell ? 'td-sell' : ''
-  else if (maxCount >= 6) tdClass = 'td-counting'
-
-  return {
-    text: parts.join(' / ') + (maxCount >= 9 ? '⚠️' : ''),
-    class: tdClass,
-  }
+  if (a1) parts.push('1H:' + a1.td_count)
+  if (a4) parts.push('4H:' + a4.td_count)
+  const max = Math.max(a1?.td_count || 0, a4?.td_count || 0)
+  const isBuy = a1?.alert_type === 'TD_BUY' || a4?.alert_type === 'TD_BUY'
+  return { text: parts.join(' / ') + (max >= 9 ? '⚠️' : ''), class: max >= 9 ? (isBuy ? 'td-buy' : 'td-sell') : 'td-counting' }
 }
 
 async function refreshInstances() {
@@ -156,11 +145,10 @@ async function generateBtcReport() {
   reportLoading.value = true
   ElMessage.info('正在生成 BTC AI 报告...')
   try {
-    const url = await compoundApi.getBtcPredictionPdfUrl()
-    window.open(url, '_blank')
+    window.open(await compoundApi.getBtcPredictionPdfUrl(), '_blank')
     ElMessage.success('报告已在新窗口打开')
   } catch (e) {
-    ElMessage.error('生成报告失败: ' + e.message)
+    ElMessage.error('生成报告失败')
   } finally {
     reportLoading.value = false
   }
@@ -169,40 +157,117 @@ async function generateBtcReport() {
 onMounted(async () => {
   store.initWebSocket()
   await Promise.all([
-    store.fetchInstances(),
-    store.fetchPrices(),
-    store.fetchAccounts(),
-    store.fetchAlerts(),
-    store.fetchFundingAlerts(),
+    store.fetchInstances(), store.fetchAccounts(), store.fetchAlerts(), store.fetchFundingAlerts()
   ])
-
-  refreshTimer = setInterval(async () => {
-    await store.fetchAlerts()
-    await store.fetchFundingAlerts()
-  }, 10000)
 })
 
-onUnmounted(() => {
-  if (refreshTimer) clearInterval(refreshTimer)
-})
+const refreshTimer = setInterval(() => { store.fetchAlerts(); store.fetchFundingAlerts() }, 10000)
+onUnmounted(() => clearInterval(refreshTimer))
 </script>
 
 <style scoped>
-.dashboard { max-width: 1600px; margin: 0 auto; padding: 1rem; }
-.header-card { margin-bottom: 1rem; }
-.header-row { display: flex; justify-content: space-between; align-items: center; }
-.section { margin-bottom: 1rem; }
-.card-header { display: flex; justify-content: space-between; align-items: center; }
-.prices-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 1rem; }
-.price-card {
-  background: #1a1f2e; border: 1px solid #2a3042; border-radius: 8px;
-  padding: 1rem; text-align: center;
+.dashboard { max-width: 1400px; }
+
+/* ========== 段落 ========== */
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
 }
-.price-symbol { color: #f0b90b; font-weight: 600; margin-bottom: 0.5rem; }
-.price-value { font-size: 1.25rem; color: #e0e6ed; }
-.td-info { margin-top: 0.5rem; font-size: 0.875rem; }
-.td-info.td-buy, .td-info.td-sell { color: #f6465d; font-weight: bold; }
-.td-info.td-counting { color: #f0b90b; }
-.positive { color: #0ecb81; }
-.negative { color: #f6465d; }
+
+.section-header h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.prices-section { margin-bottom: 28px; }
+
+/* ========== 行情卡片 ========== */
+.prices-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 10px;
+}
+
+.price-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  padding: 16px;
+  cursor: default;
+  transition: all var(--transition);
+}
+
+.price-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-hover);
+}
+
+.card-top {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.price-symbol {
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.price-pair {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.price-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  transition: color 0.3s;
+}
+
+.price-card.up .price-value { animation: priceFlashGreen 0.8s ease-out; }
+.price-card.down .price-value { animation: priceFlashRed 0.8s ease-out; }
+
+.td-badge {
+  margin-top: 10px;
+  padding: 3px 8px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  display: inline-block;
+}
+
+.td-badge.td-buy, .td-badge.td-sell { background: var(--negative-bg); color: var(--negative); }
+.td-badge.td-counting { background: var(--bg-accent-dim); color: var(--accent); }
+
+/* ========== 表格 ========== */
+.instances-section { margin-top: 4px; }
+
+.symbol-link { font-weight: 600; color: var(--text-primary); }
+.instance-id { color: var(--text-muted); font-weight: 400; margin-left: 2px; }
+
+.status-dot {
+  display: inline-block;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+.status-dot.open { background: var(--positive); box-shadow: 0 0 6px var(--positive); }
+.status-dot.closed { background: var(--text-muted); }
+
+.profit-positive { color: var(--positive); font-weight: 600; }
+.profit-negative { color: var(--negative); font-weight: 600; }
+
+:deep(.el-table .cell) { padding: 6px 8px; }
+:deep(.el-table td.el-table__cell) { padding: 4px 0; }
+:deep(.el-table__body-wrapper tbody tr) { height: 36px; }
 </style>

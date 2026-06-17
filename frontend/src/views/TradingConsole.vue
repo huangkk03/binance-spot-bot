@@ -1,6 +1,11 @@
 <template>
-  <div class="trading-console">
-    <el-tabs v-model="activeTab">
+  <div class="trading animate-fade-in">
+    <div class="page-header">
+      <h2>交易控制台</h2>
+      <span class="page-desc">API 账户 · 首次开仓 · 策略 · Tick · AI · 通知</span>
+    </div>
+
+    <el-tabs v-model="activeTab" class="pill-tabs">
       <el-tab-pane label="API 账户" name="accounts">
         <AccountsPanel />
       </el-tab-pane>
@@ -36,5 +41,46 @@ const activeTab = ref('accounts')
 </script>
 
 <style scoped>
-.trading-console { max-width: 1400px; margin: 0 auto; padding: 1rem; }
+.trading { max-width: 1200px; }
+
+.page-header {
+  margin-bottom: 20px;
+}
+
+.page-header h2 {
+  margin: 0 0 4px;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.page-desc {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.pill-tabs :deep(.el-tabs__nav-wrap::after) {
+  display: none;
+}
+
+.pill-tabs :deep(.el-tabs__item) {
+  padding: 0 18px;
+  height: 36px;
+  line-height: 36px;
+  border-radius: 18px;
+  margin-right: 6px;
+  font-size: 13px;
+}
+
+.pill-tabs :deep(.el-tabs__item.is-active) {
+  background: var(--bg-accent-dim);
+}
+
+.pill-tabs :deep(.el-tabs__active-bar) {
+  display: none;
+}
+
+.pill-tabs :deep(.el-tabs__header) {
+  margin-bottom: 20px;
+}
 </style>

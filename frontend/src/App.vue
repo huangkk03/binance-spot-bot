@@ -1,98 +1,80 @@
 <template>
-  <el-container class="app-container">
-    <!-- 左侧侧边栏 -->
-    <el-aside :width="isCollapsed ? '64px' : '220px'" class="app-aside">
-      <div class="logo" :class="{ collapsed: isCollapsed }">
-        <div class="logo-icon">B</div>
-        <span v-if="!isCollapsed" class="logo-text">Binance Bot</span>
+  <div class="app-layout">
+    <!-- 左侧侧边栏 (hover 展开) -->
+    <aside class="sidebar" :class="{ expanded: sidebarExpanded }" @mouseenter="sidebarExpanded = true" @mouseleave="sidebarExpanded = false">
+      <div class="sidebar-brand">
+        <div class="brand-icon">B</div>
+        <span class="brand-text" v-show="sidebarExpanded">Binance Bot</span>
       </div>
 
-      <el-menu
-        :default-active="activeMenu"
-        :collapse="isCollapsed"
-        :collapse-transition="false"
-        class="app-menu"
-        background-color="transparent"
-        text-color="#b8c0cc"
-        active-text-color="#f0b90b"
-        router
-      >
-        <el-menu-item index="/trading">
-          <el-icon><Setting /></el-icon>
-          <template #title>交易控制台</template>
-        </el-menu-item>
-        <el-menu-item index="/dashboard">
-          <el-icon><DataLine /></el-icon>
-          <template #title>Dashboard</template>
-        </el-menu-item>
-        <el-menu-item index="/strategy">
-          <el-icon><Histogram /></el-icon>
-          <template #title>策略配置</template>
-        </el-menu-item>
-        <el-menu-item index="/accounts">
-          <el-icon><Wallet /></el-icon>
-          <template #title>账户余额</template>
-        </el-menu-item>
-        <el-menu-item index="/history">
-          <el-icon><Document /></el-icon>
-          <template #title>历史</template>
-        </el-menu-item>
-        <el-menu-item index="/settings">
-          <el-icon><Tools /></el-icon>
-          <template #title>设置</template>
-        </el-menu-item>
-      </el-menu>
+      <nav class="sidebar-nav">
+        <router-link to="/trading" class="nav-item" :class="{ active: $route.path === '/trading' }">
+          <el-icon :size="20"><Setting /></el-icon>
+          <span class="nav-label" v-show="sidebarExpanded">交易控制台</span>
+        </router-link>
+        <router-link to="/dashboard" class="nav-item" :class="{ active: $route.path === '/dashboard' }">
+          <el-icon :size="20"><DataLine /></el-icon>
+          <span class="nav-label" v-show="sidebarExpanded">Dashboard</span>
+        </router-link>
+        <router-link to="/strategy" class="nav-item" :class="{ active: $route.path === '/strategy' }">
+          <el-icon :size="20"><Histogram /></el-icon>
+          <span class="nav-label" v-show="sidebarExpanded">策略配置</span>
+        </router-link>
+        <router-link to="/accounts" class="nav-item" :class="{ active: $route.path === '/accounts' }">
+          <el-icon :size="20"><Wallet /></el-icon>
+          <span class="nav-label" v-show="sidebarExpanded">账户余额</span>
+        </router-link>
+        <router-link to="/history" class="nav-item" :class="{ active: $route.path === '/history' }">
+          <el-icon :size="20"><Document /></el-icon>
+          <span class="nav-label" v-show="sidebarExpanded">历史</span>
+        </router-link>
+        <router-link to="/settings" class="nav-item" :class="{ active: $route.path === '/settings' }">
+          <el-icon :size="20"><Tools /></el-icon>
+          <span class="nav-label" v-show="sidebarExpanded">设置</span>
+        </router-link>
+      </nav>
 
-      <div class="collapse-btn" @click="isCollapsed = !isCollapsed">
-        <el-icon><Fold v-if="!isCollapsed" /><Expand v-else /></el-icon>
+      <div class="sidebar-footer">
+        <button class="logout-btn" @click="handleLogout" :title="'登出 — ' + auth.username">
+          <el-icon :size="18"><SwitchButton /></el-icon>
+          <span class="nav-label" v-show="sidebarExpanded">登出</span>
+        </button>
       </div>
-    </el-aside>
+    </aside>
 
     <!-- 右侧主区域 -->
-    <el-container>
+    <div class="main-area">
       <!-- 顶栏 -->
-      <el-header class="app-header">
-        <div class="header-left">
+      <header class="topbar">
+        <div class="topbar-left">
           <span class="page-title">{{ pageTitle }}</span>
-          <el-tag v-if="pageSubtitle" size="small" type="info" class="page-subtitle">
-            {{ pageSubtitle }}
-          </el-tag>
         </div>
-        <div class="header-right">
-          <el-tag v-if="auth.authed" type="success" size="small" class="user-tag">
-            <el-icon><User /></el-icon>
-            <span style="margin-left: 4px;">{{ auth.username }}</span>
-          </el-tag>
-          <el-tag v-if="store.accounts && store.accounts.length > 0" type="warning" size="small">
+        <div class="topbar-right">
+          <el-tag v-if="store.accounts && store.accounts.length" size="small" type="warning" round>
             {{ store.accounts.length }} 币种
           </el-tag>
-          <el-button size="small" @click="refreshAll" :loading="refreshing">
-            <el-icon><Refresh /></el-icon>
-            刷新
-          </el-button>
-          <el-button size="small" type="danger" plain @click="handleLogout">
-            <el-icon><SwitchButton /></el-icon>
-            登出
-          </el-button>
+          <button class="refresh-btn" @click="refreshAll" :disabled="refreshing" title="刷新">
+            <el-icon :size="16" :class="{ spinning: refreshing }"><Refresh /></el-icon>
+          </button>
         </div>
-      </el-header>
+      </header>
 
       <!-- 主内容 -->
-      <el-main class="app-main">
+      <main class="content">
         <router-view v-slot="{ Component }">
-          <transition name="fade" mode="out-in">
+          <transition name="page" mode="out-in">
             <component :is="Component" />
           </transition>
         </router-view>
-      </el-main>
-    </el-container>
-  </el-container>
+      </main>
+    </div>
+  </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import { useAuthStore } from './stores/auth'
 import { useCompoundStore } from './stores/compound'
 
@@ -101,62 +83,50 @@ const route = useRoute()
 const auth = useAuthStore()
 const store = useCompoundStore()
 
-const isCollapsed = ref(false)
+const sidebarExpanded = ref(false)
 const refreshing = ref(false)
 let expiryTimer = null
 
-const pageMap = {
-  '/trading': { title: '交易控制台', subtitle: '账户 / 策略 / Tick / AI / 通知' },
-  '/dashboard': { title: 'Dashboard', subtitle: '实时行情 + 交易实例' },
-  '/strategy': { title: '策略配置', subtitle: '全局 + 交易对独立覆盖' },
-  '/accounts': { title: '账户余额', subtitle: '现货资产实时查询' },
-  '/history': { title: '历史', subtitle: '事件 / 订单 / 报警' },
-  '/settings': { title: '设置', subtitle: '系统信息' },
-}
-
-const activeMenu = computed(() => route.path)
-const pageTitle = computed(() => pageMap[route.path]?.title || 'Binance Bot')
-const pageSubtitle = computed(() => pageMap[route.path]?.subtitle || '')
+const pageTitle = computed(() => {
+  const m = {
+    '/trading': '交易控制台',
+    '/dashboard': 'Dashboard',
+    '/strategy': '策略配置',
+    '/accounts': '账户余额',
+    '/history': '历史',
+    '/settings': '设置',
+  }
+  return m[route.path] || 'Binance Bot'
+})
 
 async function refreshAll() {
   refreshing.value = true
   try {
-    await Promise.all([
-      store.fetchInstances(),
-      store.fetchAccounts(),
-      store.fetchAlerts(),
-    ])
+    await Promise.all([store.fetchInstances(), store.fetchAccounts(), store.fetchAlerts()])
     ElMessage.success('已刷新')
   } catch (e) {
-    ElMessage.error('刷新失败: ' + e.message)
+    // 静默失败
   } finally {
     refreshing.value = false
   }
 }
 
 function handleLogout() {
-  ElMessageBox.confirm('确定要登出吗？', '确认登出', {
-    type: 'warning',
-  }).then(() => {
-    auth.logout()
-    ElMessage.success('已登出')
-    router.push('/login')
-  }).catch(() => {})
+  auth.logout()
+  router.push('/login')
 }
 
 onMounted(() => {
   store.initWebSocket()
-  // 启动时拉取一次
   store.fetchInstances().catch(() => {})
   store.fetchAccounts().catch(() => {})
 
-  // 定期检查会话过期
   expiryTimer = setInterval(() => {
     if (!auth.checkExpiry()) {
       ElMessage.warning('会话已过期，请重新登录')
       router.push('/login')
     }
-  }, 60 * 1000)  // 每分钟检查一次
+  }, 60000)
 })
 
 onUnmounted(() => {
@@ -165,146 +135,236 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.app-container {
+.app-layout {
+  display: flex;
   height: 100vh;
-}
-
-.app-aside {
-  background: #1a1f2e;
-  border-right: 1px solid #2a3042;
-  transition: width 0.2s;
-  position: relative;
-  display: flex;
-  flex-direction: column;
-}
-
-.logo {
-  height: 60px;
-  display: flex;
-  align-items: center;
-  padding: 0 16px;
-  border-bottom: 1px solid #2a3042;
-  gap: 12px;
   overflow: hidden;
 }
 
-.logo-icon {
-  width: 32px;
-  height: 32px;
-  background: linear-gradient(135deg, #f0b90b 0%, #fcd535 100%);
+/* ========== 侧边栏 ========== */
+.sidebar {
+  width: var(--sidebar-collapsed);
+  background: var(--bg-card);
+  border-right: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  transition: width var(--transition-slow);
+  z-index: 100;
+  flex-shrink: 0;
+}
+
+.sidebar.expanded {
+  width: var(--sidebar-width);
+}
+
+.sidebar-brand {
+  height: var(--header-height);
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--border-light);
+  gap: 12px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.brand-icon {
+  width: 28px;
+  height: 28px;
+  background: var(--accent);
   color: #1a1f2e;
-  font-size: 1.25rem;
-  font-weight: bold;
-  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  border-radius: 7px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
 }
 
-.logo-text {
-  color: #f0b90b;
-  font-size: 1rem;
+.brand-text {
+  color: var(--accent);
+  font-size: 14px;
   font-weight: 600;
+  white-space: nowrap;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.sidebar.expanded .brand-text {
+  opacity: 1;
+}
+
+/* ========== 导航 ========== */
+.sidebar-nav {
+  flex: 1;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all var(--transition);
+  white-space: nowrap;
+  position: relative;
+}
+
+.nav-item::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 2px;
+  height: 0;
+  background: var(--accent);
+  border-radius: 1px;
+  transition: height var(--transition);
+}
+
+.nav-item:hover {
+  color: var(--text-primary);
+  background: var(--bg-card-hover);
+}
+
+.nav-item.active {
+  color: var(--accent);
+  background: var(--bg-accent-dim);
+}
+
+.nav-item.active::before {
+  height: 20px;
+}
+
+.nav-label {
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.sidebar.expanded .nav-label {
+  opacity: 1;
+}
+
+/* ========== 底部登出 ========== */
+.sidebar-footer {
+  padding: 8px;
+  border-top: 1px solid var(--border-light);
+}
+
+.logout-btn {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: none;
+  background: none;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--transition);
   white-space: nowrap;
 }
 
-.app-menu {
-  border: none !important;
+.logout-btn:hover {
+  color: var(--negative);
+  background: var(--negative-bg);
+}
+
+/* ========== 主区域 ========== */
+.main-area {
   flex: 1;
-  overflow-y: auto;
-}
-
-.collapse-btn {
-  height: 40px;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #848e9c;
-  cursor: pointer;
-  border-top: 1px solid #2a3042;
-  transition: color 0.2s;
+  flex-direction: column;
+  overflow: hidden;
 }
 
-.collapse-btn:hover {
-  color: #f0b90b;
-  background: #252a3d;
-}
-
-.app-header {
-  background: #1a1f2e;
-  border-bottom: 1px solid #2a3042;
+/* ========== 顶栏 ========== */
+.topbar {
+  height: var(--header-height);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 1.5rem;
-  height: 60px;
-}
-
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
+  padding: 0 24px;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border-color);
+  flex-shrink: 0;
 }
 
 .page-title {
-  color: #e0e6ed;
-  font-size: 1.125rem;
+  color: var(--text-primary);
+  font-size: 15px;
   font-weight: 600;
 }
 
-.page-subtitle {
-  margin-left: 0.5rem;
-}
-
-.header-right {
+.topbar-right {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  gap: 12px;
 }
 
-.user-tag {
-  margin-right: 0.25rem;
+.refresh-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+  background: var(--bg-card-hover);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition);
 }
 
-.app-main {
-  background: #0f1218;
-  padding: 1.5rem;
+.refresh-btn:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ========== 内容区 ========== */
+.content {
+  flex: 1;
+  padding: 24px;
   overflow-y: auto;
+  background: var(--bg-primary);
 }
 
-/* 路由过渡 */
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.2s ease;
+/* ========== 路由过渡 ========== */
+.page-enter-active,
+.page-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
 }
 
-.fade-enter-from,
-.fade-leave-to {
+.page-enter-from {
   opacity: 0;
+  transform: translateY(6px);
 }
 
-/* Element Plus 菜单覆盖 */
-:deep(.el-menu) {
-  border-right: none;
-}
-
-:deep(.el-menu-item) {
-  border-radius: 0;
-  margin: 0 8px;
-}
-
-:deep(.el-menu-item:hover) {
-  background: #252a3d !important;
-  color: #f0b90b !important;
-}
-
-:deep(.el-menu-item.is-active) {
-  background: rgba(240, 185, 11, 0.1) !important;
-  border-right: 2px solid #f0b90b;
-}
-
-:deep(.el-menu--collapse) .el-menu-item {
-  margin: 0 4px;
+.page-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
 }
 </style>
