@@ -61,12 +61,14 @@ class BinanceAccountService:
             return result
         except BinanceAPIException as e:
             logger.error(f'Binance API error ({e.status_code}): {e.message}')
+            if e.status_code == 401:
+                raise  # 401 是不对的 Key，显式抛出让业务层处理
             return None
         except BinanceRequestException as e:
-            logger.error(f'Binance request error: {type(e).__name__}: {e}')
+            logger.error(f'Binance request error (网络问题): {type(e).__name__}: {e}')
             return None
         except Exception as e:
-            logger.error(f'Unexpected error fetching account info: {type(e).__name__}: {e}', exc_info=True)
+            logger.error(f'Unexpected error: {type(e).__name__}: {e}', exc_info=True)
             return None
 
     def get_balance(self, asset: str) -> Optional[Dict]:
