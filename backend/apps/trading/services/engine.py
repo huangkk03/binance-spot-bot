@@ -331,39 +331,38 @@ class TradingEngine:
 
         # 找一个未开仓的实例，或创建新实例
         is_new_instance = False
-        inst = CycleInstance.objects.filter(symbol=symbol, is_open=False).first()
-        if not inst:
-            # 需要创建新实例前检查 MAX_INSTANCES 限制
-            max_instances = self.get_max_instances_per_symbol(symbol)
-            current_count = CycleInstance.objects.filter(symbol=symbol).count()
-            if current_count >= max_instances:
-                return {
-                    'success': False,
-                    'errors': [f'该交易对已达到最大实例数 ({max_instances})，无法创建新实例。请先复利或手动平仓现有实例。']
-                }
+        inst = None
+        try:
+            inst = CycleInstance.objects.filter(symbol=symbol, is_open=False).first()
+            if not inst:
+                max_instances = self.get_max_instances_per_symbol(symbol)
+                current_count = CycleInstance.objects.filter(symbol=symbol).count()
+                if current_count >= max_instances:
+                    return {'success': False, 'errors': [f'该交易对已达到最大实例数 ({max_instances})']}
 
-            # 创建新实例 (临时, 买成功后保留, 失败后删除)
-            next_id = current_count + 1
-            inst = CycleInstance.objects.create(
-                symbol=symbol,
-                instance_id=next_id,
-                is_open=False,
-                quote_amount=quote_amount,
-            )
-            is_new_instance = True
+                next_id = current_count + 1
+                inst = CycleInstance.objects.create(
+                    symbol=symbol, instance_id=next_id, is_open=False, quote_amount=quote_amount,
+                )
+                is_new_instance = True
 
-        price = PriceCacheService.get_price(symbol)
-        if not price or price <= 0:
-            if is_new_instance:
+            price = PriceCacheService.get_price(symbol)
+            if not price or price <= 0:
+                if is_new_instance: inst.delete()
+                return {'success': False, 'errors': ['无法获取价格']}
+
+            result = self._execute_buy(inst, price, quote_amount)
+            if not result and is_new_instance:
                 inst.delete()
-            return {'success': False, 'errors': ['无法获取价格']}
+                return {'success': False, 'errors': ['下单失败，实例已回滚']}
+            elif not result:
+                return {'success': False, 'errors': ['下单失败']}
 
-        result = self._execute_buy(inst, price, quote_amount)
-        if not result and is_new_instance:
-            # 开仓失败, 删除新创建的实例 (避免孤例)
-            inst.delete()
-            return {'success': False, 'errors': ['下单失败，实例已回滚']}
-        elif not result:
-            return {'success': False, 'errors': ['下单失败']}
-
-        return {'success': True, 'message': result}
+            return {'success': True, 'message': result}
+        except Exception as e:
+            # 任何异常都回滚新实例
+            if is_new_instance and inst:
+                try: inst.delete()
+                except: pass
+            logger.error(f'manual_open_position failed: {e}', exc_info=True)
+            return {'success': False, 'errors': [f'开仓异常: {str(e)}']}
