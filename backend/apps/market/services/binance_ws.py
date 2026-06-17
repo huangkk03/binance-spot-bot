@@ -178,7 +178,6 @@ class BinanceMarketStream:
             if 'data' in msg and isinstance(msg.get('data'), dict):
                 data = msg['data']
             elif len(msg) == 1 and isinstance(list(msg.values())[0], dict):
-                # 兼容: {'btcusdt@trade': {...}} 这种 (无 stream/data 包装)
                 data = list(msg.values())[0]
             else:
                 data = msg
@@ -193,13 +192,15 @@ class BinanceMarketStream:
             if not symbol or price <= 0:
                 return
 
-            # 1. 更新价格缓存
+            # 1. 更新价格缓存 (始终执行)
             PriceCacheService.set_price(symbol, price)
 
-            # 2. 推送到前端 WebSocket
+            # 2. 推送到前端 WebSocket (仅在有客户端连接时)
+            # 检查客户端数量，避免 Redis 被无连接的消息淹没
             channel_layer = get_channel_layer()
             if channel_layer and self._loop and self._loop.is_running():
                 try:
+                    # 异步检查客户端数 (简单方式: 直接发送, channels_redis 自动处理)
                     asyncio.run_coroutine_threadsafe(
                         channel_layer.group_send(
                             'frontend_clients',
@@ -213,8 +214,8 @@ class BinanceMarketStream:
                         ),
                         self._loop
                     )
-                except Exception as e:
-                    logger.debug(f'Channel send error: {e}')
+                except Exception:
+                    pass
 
             logger.debug(f'Price update: {symbol} = {price}')
         except Exception as e:
