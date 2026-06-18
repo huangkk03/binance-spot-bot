@@ -51,10 +51,31 @@ def test_notification(request):
     title = request.data.get('title', 'Test')
     content = request.data.get('content', 'Test message')
 
-    notifier = WeChatNotifier()
-    asyncio.run(notifier.send_text(f'[{title}] {content}'))
+    webhook_url = ApiConfig.get_value('WECHAT_WEBHOOK_URL')
+    if not webhook_url:
+        return Response({'success': False, 'message': 'Webhook URL 未配置'})
 
-    return Response({'success': True, 'message': '测试通知已发送'})
+    text = f'{title}\n{content}'
+
+    try:
+        import requests as sync_requests
+        if 'sctapi.ftqq.com' in webhook_url:
+            import urllib.parse
+            url = f'{webhook_url}?text=Binance通知&desp={urllib.parse.quote(text)}'
+            r = sync_requests.get(url, timeout=10)
+        else:
+            payload = {
+                'msgtype': 'text',
+                'text': {'content': text}
+            }
+            r = sync_requests.post(webhook_url, json=payload, timeout=10)
+
+        if r.status_code == 200:
+            return Response({'success': True, 'message': '测试通知已发送'})
+        else:
+            return Response({'success': False, 'message': f'发送失败: HTTP {r.status_code}'})
+    except Exception as e:
+        return Response({'success': False, 'message': f'发送异常: {str(e)}'})
 
 
 @api_view(['POST'])
