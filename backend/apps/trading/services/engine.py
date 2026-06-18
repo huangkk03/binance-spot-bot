@@ -25,6 +25,20 @@ logger = logging.getLogger(__name__)
 TAKER_FEE_RATE = Decimal('0.001')
 
 
+def _send_wechat_notify(content: str):
+    """同步发送企业微信通知 (给 Scanner 用)"""
+    try:
+        import requests as sync_requests
+        from apps.notifications.models import ApiConfig
+        webhook_url = ApiConfig.get_value('WECHAT_WEBHOOK_URL')
+        if not webhook_url:
+            return
+        payload = {'msgtype': 'text', 'text': {'content': content}}
+        sync_requests.post(webhook_url, json=payload, timeout=10)
+    except Exception:
+        pass  # 通知失败不影响交易
+
+
 class TradingEngine:
     """
     真实交易核心引擎
@@ -248,6 +262,14 @@ class TradingEngine:
 
             msg = f'BUY_OPEN: {symbol}#{inst.instance_id} cycle={inst.cycle_id} qty={executed_qty} at {actual_avg_price} spent={cummulative_quote_qty} fee={commission}{commission_asset}'
             logger.info(msg)
+
+            # 发送通知
+            if inst.cycle_id <= 1:
+                note_text = f'【首次开仓】{symbol}#{inst.instance_id}\n入场价: {actual_avg_price}\n数量: {executed_qty}\n投入: {cummulative_quote_qty} USDT\n手续费: {commission} {commission_asset}'
+            else:
+                note_text = f'【复利再买入】{symbol}#{inst.instance_id} 第{inst.cycle_id}轮\n入场价: {actual_avg_price}\n数量: {executed_qty}\n投入: {cummulative_quote_qty} USDT\n手续费: {commission} {commission_asset}'
+            _send_wechat_notify(note_text)
+
             return msg
 
         except Exception as e:
@@ -278,13 +300,15 @@ class TradingEngine:
 
             executed_qty = Decimal(order_result['executed_qty'])
             cummulative_quote_qty = Decimal(order_result['cummulative_quote_qty'])
+            actual_avg_price = Decimal(order_result.get('avg_price', '0'))
+            commission = Decimal(order_result.get('commission', '0'))
+            commission_asset = order_result.get('commission_asset', '')
 
-            # 计算利润
-            sell_fee = cummulative_quote_qty * TAKER_FEE_RATE
-            net_quote = cummulative_quote_qty - sell_fee
+            # 计算利润 (使用 Binance 手续费)
+            net_quote = cummulative_quote_qty - commission if commission_asset == 'USDT' else cummulative_quote_qty
             profit = net_quote - inst.spent_quote
 
-            # 计算下次开仓金额（复利）
+            # 复利入场价
             reentry_price = inst.anchor_price if event_type == 'SELL_TP' else Decimal('0')
 
             with transaction.atomic():
@@ -293,7 +317,7 @@ class TradingEngine:
                 inst.spent_quote = Decimal('0')
                 inst.quote_amount = net_quote  # 复利本金
                 inst.cycle_start_price = Decimal('0')
-                inst.last_action_price = price
+                inst.last_action_price = actual_avg_price if actual_avg_price > 0 else price
                 inst.reentry_price = reentry_price
                 inst.cumulative_profit = inst.cumulative_profit + profit
                 inst.save()
@@ -306,7 +330,9 @@ class TradingEngine:
                     status=order_result['status'],
                     executed_qty=executed_qty,
                     cummulative_quote_qty=cummulative_quote_qty,
-                    avg_price=price,
+                    avg_price=actual_avg_price,
+                    commission=commission,
+                    commission_asset=commission_asset,
                     payload_json=str(order_result.get('raw', {})),
                 )
 
@@ -316,15 +342,22 @@ class TradingEngine:
                     instance_id=inst.instance_id,
                     cycle_id=inst.cycle_id,
                     event=event_type,
-                    price=price,
+                    price=actual_avg_price if actual_avg_price > 0 else price,
                     base_qty=executed_qty,
                     quote_amount=cummulative_quote_qty,
-                    note=f'order_id={order_result["order_id"]}, profit={profit}',
+                    note=f'order_id={order_result["order_id"]}, profit={profit} fee={commission}{commission_asset}',
                 )
 
             action = 'TAKE_PROFIT' if event_type == 'SELL_TP' else 'STOP_LOSS'
-            msg = f'{action}: {symbol}#{inst.instance_id} cycle={inst.cycle_id} qty={executed_qty} at {price} profit={profit}'
+            msg = f'{action}: {symbol}#{inst.instance_id} cycle={inst.cycle_id} qty={executed_qty} at {actual_avg_price} profit={profit} fee={commission}{commission_asset}'
             logger.info(msg)
+
+            # 发送通知
+            emoji = '📈' if profit > 0 else '📉'
+            tag = '止盈' if event_type == 'SELL_TP' else '止损'
+            note_text = f'{emoji}【{tag}】{symbol}#{inst.instance_id}\n卖出价: {actual_avg_price if actual_avg_price > 0 else price}\n数量: {executed_qty}\n收入: {cummulative_quote_qty} USDT\n盈亏: {profit} USDT\n手续费: {commission} {commission_asset}'
+            _send_wechat_notify(note_text)
+
             return msg
 
         except Exception as e:
