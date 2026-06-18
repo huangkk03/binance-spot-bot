@@ -9,10 +9,16 @@ import logging
 import json
 import urllib.parse
 import httpx
+from asgiref.sync import sync_to_async
 
 from apps.notifications.models import ApiConfig
 
 logger = logging.getLogger(__name__)
+
+
+# 同步获取 webhook URL（在 async 上下文中通过 sync_to_async 调用）
+def _get_webhook_url():
+    return ApiConfig.get_value('WECHAT_WEBHOOK_URL')
 
 
 class WeChatNotifier:
@@ -20,7 +26,7 @@ class WeChatNotifier:
 
     async def send_text(self, text: str):
         """发送文本消息"""
-        webhook_url = ApiConfig.get_value('WECHAT_WEBHOOK_URL')
+        webhook_url = await sync_to_async(_get_webhook_url)()
         if not webhook_url:
             logger.debug('WeChat webhook not configured')
             return
@@ -35,9 +41,8 @@ class WeChatNotifier:
 
     async def send_markdown(self, content: str):
         """发送 Markdown 消息"""
-        webhook_url = ApiConfig.get_value('WECHAT_WEBHOOK_URL')
+        webhook_url = await sync_to_async(_get_webhook_url)()
         if not webhook_url or 'sctapi.ftqq.com' in webhook_url:
-            # Server酱不支持 markdown，回退到文本
             await self.send_text(content)
             return
 
@@ -66,7 +71,6 @@ class WeChatNotifier:
     @staticmethod
     async def _send_generic_json(webhook_url: str, text: str):
         """通用企业微信/钉钉 JSON POST"""
-        # 转义换行
         escaped = text.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n')
         payload = {
             'msgtype': 'text',
