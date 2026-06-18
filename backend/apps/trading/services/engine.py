@@ -292,8 +292,15 @@ class TradingEngine:
             if base_qty <= 0:
                 return None
 
-            # 下卖单
-            order_result = self.trading_client.place_market_sell(symbol, base_qty)
+            # 获取交易对精度，量化数量
+            symbol_info = PrecisionService.get_symbol_info(self.client, symbol)
+            step_size = symbol_info.get('stepSize', Decimal('0.00000001'))
+            sell_qty = PrecisionService.quantize_quantity(base_qty, step_size)
+
+            logger.info(f'SELL {symbol}: raw_qty={base_qty} step={step_size} quantized={sell_qty}')
+
+            # 下卖单 (使用量化后的数量)
+            order_result = self.trading_client.place_market_sell(symbol, sell_qty)
             if not order_result['success']:
                 logger.error(f'Sell order failed for {symbol}: {order_result.get("errors")}')
                 return None
