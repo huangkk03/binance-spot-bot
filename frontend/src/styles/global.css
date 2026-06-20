@@ -119,6 +119,7 @@ body {
   --el-table-border-color: var(--border-color);
   --el-table-text-color: var(--text-primary);
   --el-table-header-text-color: var(--text-secondary);
+  --el-table-row-striped-bg-color: rgba(255, 255, 255, 0.02);
   border-radius: var(--radius);
   overflow: hidden;
 }
