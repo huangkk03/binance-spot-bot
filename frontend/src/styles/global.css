@@ -124,6 +124,15 @@ body {
   overflow: hidden;
 }
 
+/* 强制覆盖 Element Plus 默认白色条纹 */
+.el-table__body tr {
+  background-color: var(--bg-card) !important;
+}
+
+.el-table--striped .el-table__body tr.el-table__row--striped td {
+  background-color: rgba(255, 255, 255, 0.03) !important;
+}
+
 .el-table th.el-table__cell {
   background: rgba(255, 255, 255, 0.03) !important;
   font-weight: 500;
