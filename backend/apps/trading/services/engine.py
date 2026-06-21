@@ -372,26 +372,23 @@ class TradingEngine:
             return None
 
     def manual_open_position(self, symbol: str, quote_amount: Decimal) -> Dict:
-        """手动开仓（API 端点）"""
+        """手动开仓（API 端点）— 永远创建新实例，不复用已平仓的"""
         if not self.trading_client:
             return {'success': False, 'errors': ['没有激活的交易账户']}
 
-        # 找一个未开仓的实例，或创建新实例
-        is_new_instance = False
+        is_new_instance = True
         inst = None
         try:
-            inst = CycleInstance.objects.filter(symbol=symbol, is_open=False).first()
-            if not inst:
-                max_instances = self.get_max_instances_per_symbol(symbol)
-                current_count = CycleInstance.objects.filter(symbol=symbol).count()
-                if current_count >= max_instances:
-                    return {'success': False, 'errors': [f'该交易对已达到最大实例数 ({max_instances})']}
+            max_instances = self.get_max_instances_per_symbol(symbol)
+            current_count = CycleInstance.objects.filter(symbol=symbol).count()
+            if current_count >= max_instances:
+                return {'success': False, 'errors': [f'该交易对已达到最大实例数 ({max_instances})']}
 
-                next_id = current_count + 1
-                inst = CycleInstance.objects.create(
-                    symbol=symbol, instance_id=next_id, is_open=False, quote_amount=quote_amount,
-                )
-                is_new_instance = True
+            # 手动开仓：永远创建新实例
+            next_id = current_count + 1
+            inst = CycleInstance.objects.create(
+                symbol=symbol, instance_id=next_id, is_open=False, quote_amount=quote_amount,
+            )
 
             price = PriceCacheService.get_price(symbol)
             if not price or price <= 0:
