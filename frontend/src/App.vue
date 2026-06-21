@@ -15,6 +15,10 @@
           <el-icon :size="20"><Setting /></el-icon>
           <span class="nav-label" v-show="sidebarExpanded || pinned">交易控制台</span>
         </router-link>
+        <router-link to="/futures" class="nav-item" :class="{ active: $route.path === '/futures' }">
+          <el-icon :size="20"><TrendCharts /></el-icon>
+          <span class="nav-label" v-show="sidebarExpanded || pinned">合约交易</span>
+        </router-link>
         <router-link to="/dashboard" class="nav-item" :class="{ active: $route.path === '/dashboard' }">
           <el-icon :size="20"><DataLine /></el-icon>
           <span class="nav-label" v-show="sidebarExpanded || pinned">Dashboard</span>
@@ -93,8 +97,9 @@ let expiryTimer = null
 
 const pageTitle = computed(() => {
   const m = {
-    '/trading': '交易控制台',
-    '/dashboard': 'Dashboard',
+  '/trading': '交易控制台',
+  '/futures': '合约交易',
+  '/dashboard': 'Dashboard',
     '/strategy': '策略配置',
     '/accounts': '账户余额',
     '/history': '历史',

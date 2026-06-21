@@ -155,6 +155,28 @@ export const compoundApi = {
         return r.data
     },
 
+    // ===== 合约交易 =====
+    async futuresOpen(data) {
+        const r = await api.post('/futures/open', data)
+        return r.data
+    },
+    async futuresClose(id) {
+        const r = await api.post(`/futures/close/${id}`)
+        return r.data
+    },
+    async futuresInstances(symbol) {
+        const r = await api.get('/futures/instances', { params: symbol ? { symbol } : {} })
+        return r.data
+    },
+    async futuresTick() {
+        const r = await api.post('/futures/tick')
+        return r.data
+    },
+    async futuresEvents(symbol, limit = 100) {
+        const r = await api.get('/futures/history/events', { params: { symbol, limit } })
+        return r.data
+    },
+
     // ===== AI =====
     async aiChat(system, user) {
         const r = await api.post('/ai/chat', { system, user })

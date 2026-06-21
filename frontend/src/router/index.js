@@ -6,6 +6,7 @@ const routes = [
     { path: '/login', component: () => import('../views/Login.vue'), meta: { hideLayout: true } },
     { path: '/dashboard', component: () => import('../views/Dashboard.vue') },
     { path: '/trading', component: () => import('../views/TradingConsole.vue') },
+    { path: '/futures', component: () => import('../views/FuturesConsole.vue') },
     { path: '/strategy', component: () => import('../views/StrategyView.vue') },
     { path: '/accounts', component: () => import('../views/Accounts.vue') },
     { path: '/history', component: () => import('../views/History.vue') },

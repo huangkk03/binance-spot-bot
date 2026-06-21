@@ -41,6 +41,7 @@ INSTALLED_APPS = [
     'apps.reports',
     'apps.ai',
     'apps.strategy',
+    'apps.futures',
 ]
 
 MIDDLEWARE = [
@@ -149,6 +150,10 @@ CELERY_BEAT_SCHEDULE = {
     'funding-rate-scan': {
         'task': 'apps.scanners.tasks.scan_funding_rates',
         'schedule': 300.0,  # 5分钟
+    },
+    'futures-tick': {
+        'task': 'apps.futures.tasks.execute_futures_tick',
+        'schedule': 30.0,  # 30秒
     },
     'daily-btc-report': {
         'task': 'apps.reports.tasks.generate_daily_btc_report',
