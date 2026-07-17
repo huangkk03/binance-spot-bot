@@ -95,7 +95,7 @@ class BinanceFuturesClient:
 
             executed_qty = Decimal(result.get('executedQty', '0'))
             cum_quote = Decimal(result.get('cumQuote', '0'))
-            avg_price = Decimal(result.get('avgPrice', '0'))
+            avg_price = cum_quote / executed_qty if executed_qty > 0 else Decimal('0')
 
             return {
                 'success': True,
@@ -144,7 +144,7 @@ class BinanceFuturesClient:
 
             executed_qty = Decimal(result.get('executedQty', '0'))
             cum_quote = Decimal(result.get('cumQuote', '0'))
-            avg_price = Decimal(result.get('avgPrice', '0'))
+            avg_price = cum_quote / executed_qty if executed_qty > 0 else Decimal('0')
 
             return {
                 'success': True,
