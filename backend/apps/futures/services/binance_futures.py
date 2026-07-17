@@ -3,6 +3,7 @@ Binance 合约客户端
 U本位永续合约: /fapi/v1/*
 """
 import logging
+import time
 from decimal import Decimal
 from typing import Dict, Optional
 
@@ -17,6 +18,19 @@ class BinanceFuturesClient:
 
     def __init__(self, client: Client):
         self.client = client
+        # 同步服务器时间偏移
+        self._sync_time()
+
+    def _sync_time(self):
+        """同步 Binance 合约服务器时间"""
+        try:
+            server_time = self.client.futures_time()['serverTime']
+            local_time = int(time.time() * 1000)
+            offset = server_time - local_time
+            self.client.timestamp_offset = offset
+            logger.info(f'Futures time offset: {offset}ms (synced)')
+        except Exception as e:
+            logger.warning(f'Futures time sync failed: {e}')
 
     def set_leverage(self, symbol: str, leverage: int) -> Dict:
         """设置杠杆倍数"""
@@ -28,12 +42,13 @@ class BinanceFuturesClient:
             return {'success': False, 'errors': [str(e)]}
 
     def set_margin_type(self, symbol: str, margin_type: str = 'ISOLATED') -> Dict:
-        """设置保证金模式 ISOLATED/CROSSED"""
+        """设置保证金模式 ISOLATED/CROSSED (已创建持仓时无法修改, 忽略)"""
         try:
             self.client.futures_change_margin_type(symbol=symbol, marginType=margin_type)
             return {'success': True}
         except BinanceAPIException as e:
-            if 'No need to change margin type' in str(e):
+            if 'No need to change margin type' in str(e) or 'position' in str(e).lower():
+                logger.debug(f'Margin type already set or position exists: {e.message}')
                 return {'success': True}
             logger.error(f'Set margin type failed: {e}')
             return {'success': False, 'errors': [str(e)]}

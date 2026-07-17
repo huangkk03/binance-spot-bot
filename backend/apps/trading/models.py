@@ -182,6 +182,7 @@ class InstanceEvent(models.Model):
         ('SELL_TP', '止盈平仓'),
         ('SELL_SL', '止损平仓'),
         ('REBUY_COMPOUND', '复利再买入'),
+        ('FUTURES_OPEN', '合约开仓'),
     ]
 
     symbol = models.CharField(max_length=20, verbose_name='交易对')

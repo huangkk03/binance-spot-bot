@@ -142,7 +142,7 @@ class FuturesEngine:
                 inst.save()
 
                 TradeRecord.objects.create(
-                    order_id=order['order_id'], symbol=symbol, side='FUTURES_OPEN',
+                    order_id=order['order_id'], symbol=symbol, side='F_OPEN',
                     status=order['status'], executed_qty=qty,
                     cummulative_quote_qty=Decimal(order['cummulative_quote_qty']),
                     avg_price=avg_price, payload_json=str(order.get('raw', {}))
@@ -196,7 +196,7 @@ class FuturesEngine:
                 inst.save()
 
                 TradeRecord.objects.create(
-                    order_id=order['order_id'], symbol=symbol, side='FUTURES_CLOSE',
+                    order_id=order['order_id'], symbol=symbol, side='F_CLOSE',
                     status=order['status'], executed_qty=inst.base_qty if inst.base_qty > 0 else Decimal(order['executed_qty']),
                     cummulative_quote_qty=cum_quote, avg_price=avg_price,
                     payload_json=str(order.get('raw', {}))
