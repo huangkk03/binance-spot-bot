@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>BTC AI 预测报告</title>
+<style>
+    body { font-family: "Microsoft YaHei", sans-serif; margin: 40px; line-height: 1.6; }
+    h1 { color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px; }
+    h2 { color: #34495e; margin-top: 30px; }
+    .meta { color: #7f8c8d; font-size: 0.9em; margin-bottom: 30px; }
+    .content { white-space: pre-wrap; font-size: 14px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+    th { background-color: #f4f6f9; }
+</style>
+</head>
+<body>
+    <h1>BTC AI 预测报告</h1>
+    <p class="meta">生成时间: {{ generated_at }}</p>
+    <h2>AI 分析</h2>
+    <div class="content">{{ content }}</div>
+    {% if klines %}
+    <h2>近期 K线数据</h2>
+    <table>
+        <thead><tr><th>开盘时间</th><th>开</th><th>高</th><th>低</th><th>收</th><th>量</th></tr></thead>
+        <tbody>
+        {% for k in klines %}
+            <tr>
+                <td>{{ k.openTime }}</td>
+                <td>{{ k.open }}</td>
+                <td>{{ k.high }}</td>
+                <td>{{ k.low }}</td>
+                <td>{{ k.close }}</td>
+                <td>{{ k.volume }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% endif %}
+</body>
+</html>

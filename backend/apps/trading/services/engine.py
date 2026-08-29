@@ -1,0 +1,412 @@
+"""
+交易核心引擎
+复利循环: 开仓 → 止盈 → 复利再买入 → 重复
+支持策略参数三层覆盖 (symbol-specific > global DB > settings.py)
+"""
+import logging
+from decimal import Decimal, ROUND_DOWN
+from typing import Dict, List, Optional
+
+from django.utils import timezone
+from django.db import transaction
+
+from apps.accounts.models import ApiAccount
+from apps.trading.models import (
+    CycleInstance, TradeRecord, CycleOpenRecord, InstanceEvent
+)
+from apps.trading.services.binance_client import BinanceTradingClient
+from apps.trading.services.precision import PrecisionService
+from apps.market.services.price_cache import PriceCacheService
+from apps.strategy.services.strategy import StrategyService
+
+logger = logging.getLogger(__name__)
+
+# 交易手续费率 (0.1% taker)
+TAKER_FEE_RATE = Decimal('0.001')
+
+
+def _send_wechat_notify(content: str):
+    """同步发送企业微信通知 (给 Scanner 用)"""
+    try:
+        import requests as sync_requests
+        from apps.notifications.models import ApiConfig
+        webhook_url = ApiConfig.get_value('WECHAT_WEBHOOK_URL')
+        if not webhook_url:
+            return
+        payload = {'msgtype': 'text', 'text': {'content': content}}
+        sync_requests.post(webhook_url, json=payload, timeout=10)
+    except Exception:
+        pass  # 通知失败不影响交易
+
+
+class TradingEngine:
+    """
+    真实交易核心引擎
+    使用 StrategyService 解析所有交易参数 (支持 symbol-specific 覆盖)
+    """
+
+    def __init__(self):
+        self.active_account = ApiAccount.get_active()
+        self.client = None
+        self.trading_client = None
+        self.strategy = StrategyService()
+        if self.active_account:
+            from binance.client import Client
+            self.client = Client(
+                api_key=self.active_account.api_key,
+                api_secret=self.active_account.get_secret(),
+                testnet=self.active_account.testnet,
+            )
+            self.trading_client = BinanceTradingClient(self.client)
+
+    def get_take_profit_pct(self, symbol: str) -> Decimal:
+        """获取止盈百分比（symbol-specific 覆盖全局）"""
+        return self.strategy.get_take_profit_pct(symbol)
+
+    def get_stop_loss_pct(self, symbol: str) -> Decimal:
+        """获取止损百分比 (0=关闭)"""
+        return self.strategy.get_stop_loss_pct(symbol)
+
+    def get_quote_reserve(self) -> Decimal:
+        """获取 USDT 保留金额"""
+        return self.strategy.get_quote_reserve()
+
+    def get_max_orders_per_tick(self) -> int:
+        """每 tick 最大订单数"""
+        return self.strategy.get_max_orders_per_tick()
+
+    def get_max_instances_per_symbol(self, symbol: str) -> int:
+        """每交易对最大实例数"""
+        return self.strategy.get_max_instances_per_symbol(symbol)
+
+    def can_create_new_instance(self, symbol: str) -> bool:
+        """检查该交易对是否还能创建新实例"""
+        max_instances = self.get_max_instances_per_symbol(symbol)
+        current_count = CycleInstance.objects.filter(symbol=symbol).count()
+        return current_count < max_instances
+
+    def execute_tick(self, symbols: List[str]) -> List[str]:
+        """
+        执行一轮 tick:
+        - 获取所有实例
+        - 对每个实例:
+            - 如果 is_open=False，等待 reentry_price
+            - 如果 is_open=True，检查止盈/止损
+        """
+        if not self.active_account:
+            logger.warning('No active API account, skipping tick')
+            return []
+
+        if not self.trading_client:
+            logger.error('Trading client not initialized')
+            return []
+
+        actions = []
+        max_orders = self.get_max_orders_per_tick()
+        remaining = max_orders
+
+        for symbol in symbols:
+            if remaining <= 0:
+                break
+
+            try:
+                # 获取该币种所有实例
+                instances = CycleInstance.objects.filter(symbol=symbol).order_by('instance_id')
+
+                for inst in instances:
+                    if remaining <= 0:
+                        break
+
+                    price = PriceCacheService.get_price(symbol)
+                    if not price or price <= 0:
+                        continue
+
+                    if not inst.is_open:
+                        # 平仓状态：检查是否可以重新入场
+                        result = self._try_open_position(inst, price)
+                    else:
+                        # 开仓状态：检查止盈/止损
+                        result = self._try_close_position(inst, price)
+
+                    if result:
+                        actions.append(result)
+                        remaining -= 1
+
+            except Exception as e:
+                logger.error(f'Error in tick for {symbol}: {e}', exc_info=True)
+
+        return actions
+
+    def _try_open_position(self, inst: CycleInstance, price: Decimal) -> Optional[str]:
+        """
+        尝试开仓（reentry）
+        条件: 当前价格 <= reentry_price
+        """
+        reentry_price = inst.reentry_price or inst.anchor_price
+        if reentry_price <= 0:
+            return None
+
+        if price > reentry_price:
+            return None  # 价格高于锚定价，等待
+
+        # 计算可花费的 quote 金额
+        quote_amount = inst.quote_amount
+        if quote_amount <= 0:
+            # 用默认值
+            from django.conf import settings
+            quote_amount = Decimal('10')  # 默认 10 USDT
+
+        return self._execute_buy(inst, price, quote_amount)
+
+    def _try_close_position(self, inst: CycleInstance, price: Decimal) -> Optional[str]:
+        """
+        尝试平仓（止盈/止损）
+        条件:
+            - take_profit: price >= cycle_start_price * (1 + take_profit_pct)
+            - stop_loss: price <= cycle_start_price * (1 - stop_loss_pct)
+        """
+        if inst.base_qty <= 0 or inst.cycle_start_price <= 0:
+            return None
+
+        take_profit_pct = self.get_take_profit_pct(inst.symbol)
+        stop_loss_pct = self.get_stop_loss_pct(inst.symbol)
+
+        take_profit_price = inst.cycle_start_price * (Decimal('1') + take_profit_pct)
+        stop_loss_price = inst.cycle_start_price * (Decimal('1') - stop_loss_pct)
+
+        if take_profit_pct > 0 and price >= take_profit_price:
+            return self._execute_sell_take_profit(inst, price)
+        elif stop_loss_pct > 0 and price <= stop_loss_price:
+            return self._execute_sell_stop_loss(inst, price)
+
+        return None
+
+    def _execute_buy(self, inst: CycleInstance, price: Decimal, quote_amount: Decimal) -> Optional[str]:
+        """执行买入"""
+        symbol = inst.symbol
+        try:
+            # 获取交易对精度
+            symbol_info = PrecisionService.get_symbol_info(self.client, symbol)
+            step_size = symbol_info.get('stepSize', Decimal('0.00000001'))
+            tick_size = symbol_info.get('tickSize', Decimal('0.01'))
+
+            # 量化 quote 金额
+            quantized_quote = PrecisionService.quantize_quantity(quote_amount, tick_size)
+            if quantized_quote <= 0:
+                return None
+
+            # 下买单
+            order_result = self.trading_client.place_market_buy(symbol, quantized_quote)
+            if not order_result['success']:
+                logger.error(f'Buy order failed for {symbol}: {order_result.get("errors")}')
+                return None
+
+            executed_qty = Decimal(order_result['executed_qty'])
+            cummulative_quote_qty = Decimal(order_result['cummulative_quote_qty'])
+            actual_avg_price = Decimal(order_result.get('avg_price', '0'))
+            commission = Decimal(order_result.get('commission', '0'))
+            commission_asset = order_result.get('commission_asset', '')
+
+            logger.info(f'BUY {symbol}: cached_price={price} order_avg={actual_avg_price} qty={executed_qty} spent={cummulative_quote_qty} fee={commission}{commission_asset}')
+
+            # 记录交易
+            with transaction.atomic():
+                # 更新实例 (使用 Binance 实际成交均价)
+                inst.is_open = True
+                inst.base_qty = executed_qty
+                inst.spent_quote = cummulative_quote_qty
+                inst.quote_amount = cummulative_quote_qty  # 复利：本次花费=下次可用
+                inst.cycle_start_price = actual_avg_price
+                inst.last_action_price = actual_avg_price
+                inst.reentry_price = Decimal('0')
+                if inst.anchor_price == 0:
+                    inst.anchor_price = actual_avg_price
+                inst.cycle_id = inst.cycle_id + 1
+                inst.save()
+
+                # 记录 trade (完整 Binance 数据)
+                TradeRecord.objects.create(
+                    order_id=order_result['order_id'],
+                    symbol=symbol,
+                    side='BUY',
+                    status=order_result['status'],
+                    executed_qty=executed_qty,
+                    cummulative_quote_qty=cummulative_quote_qty,
+                    avg_price=actual_avg_price,
+                    commission=commission,
+                    commission_asset=commission_asset,
+                    payload_json=str(order_result.get('raw', {})),
+                )
+
+                # 记录开仓
+                CycleOpenRecord.objects.create(
+                    symbol=symbol,
+                    instance_id=inst.instance_id,
+                    cycle_id=inst.cycle_id,
+                    start_price=actual_avg_price,
+                    quote_amount=cummulative_quote_qty,
+                    opened_at=timezone.now(),
+                )
+
+                # 记录事件
+                InstanceEvent.objects.create(
+                    symbol=symbol,
+                    instance_id=inst.instance_id,
+                    cycle_id=inst.cycle_id,
+                    event='BUY_OPEN',
+                    price=actual_avg_price,
+                    base_qty=executed_qty,
+                    quote_amount=cummulative_quote_qty,
+                    note=f'order_id={order_result["order_id"]} fee={commission}{commission_asset}',
+                )
+
+            msg = f'BUY_OPEN: {symbol}#{inst.instance_id} cycle={inst.cycle_id} qty={executed_qty} at {actual_avg_price} spent={cummulative_quote_qty} fee={commission}{commission_asset}'
+            logger.info(msg)
+
+            # 发送通知
+            if inst.cycle_id <= 1:
+                note_text = f'【首次开仓】{symbol}#{inst.instance_id}\n入场价: {actual_avg_price}\n数量: {executed_qty}\n投入: {cummulative_quote_qty} USDT\n手续费: {commission} {commission_asset}'
+            else:
+                note_text = f'【复利再买入】{symbol}#{inst.instance_id} 第{inst.cycle_id}轮\n入场价: {actual_avg_price}\n数量: {executed_qty}\n投入: {cummulative_quote_qty} USDT\n手续费: {commission} {commission_asset}'
+            _send_wechat_notify(note_text)
+
+            return msg
+
+        except Exception as e:
+            logger.error(f'Error executing buy for {symbol}: {e}', exc_info=True)
+            return None
+
+    def _execute_sell_take_profit(self, inst: CycleInstance, price: Decimal) -> Optional[str]:
+        """执行止盈卖出"""
+        return self._execute_sell(inst, price, 'SELL_TP')
+
+    def _execute_sell_stop_loss(self, inst: CycleInstance, price: Decimal) -> Optional[str]:
+        """执行止损卖出"""
+        return self._execute_sell(inst, price, 'SELL_SL')
+
+    def _execute_sell(self, inst: CycleInstance, price: Decimal, event_type: str) -> Optional[str]:
+        """执行卖出"""
+        symbol = inst.symbol
+        try:
+            base_qty = inst.base_qty
+            if base_qty <= 0:
+                return None
+
+            # 获取交易对精度，量化数量
+            symbol_info = PrecisionService.get_symbol_info(self.client, symbol)
+            step_size = symbol_info.get('stepSize', Decimal('0.00000001'))
+            sell_qty = PrecisionService.quantize_quantity(base_qty, step_size)
+
+            logger.info(f'SELL {symbol}: raw_qty={base_qty} step={step_size} quantized={sell_qty}')
+
+            # 下卖单 (使用量化后的数量)
+            order_result = self.trading_client.place_market_sell(symbol, sell_qty)
+            if not order_result['success']:
+                logger.error(f'Sell order failed for {symbol}: {order_result.get("errors")}')
+                return None
+
+            executed_qty = Decimal(order_result['executed_qty'])
+            cummulative_quote_qty = Decimal(order_result['cummulative_quote_qty'])
+            actual_avg_price = Decimal(order_result.get('avg_price', '0'))
+            commission = Decimal(order_result.get('commission', '0'))
+            commission_asset = order_result.get('commission_asset', '')
+
+            # 计算利润 (使用 Binance 手续费)
+            net_quote = cummulative_quote_qty - commission if commission_asset == 'USDT' else cummulative_quote_qty
+            profit = net_quote - inst.spent_quote
+
+            # 复利入场价
+            reentry_price = inst.anchor_price if event_type == 'SELL_TP' else Decimal('0')
+
+            with transaction.atomic():
+                inst.is_open = False
+                inst.base_qty = Decimal('0')
+                inst.spent_quote = Decimal('0')
+                inst.quote_amount = net_quote  # 复利本金
+                inst.cycle_start_price = Decimal('0')
+                inst.last_action_price = actual_avg_price if actual_avg_price > 0 else price
+                inst.reentry_price = reentry_price
+                inst.cumulative_profit = inst.cumulative_profit + profit
+                inst.save()
+
+                # 记录 trade
+                TradeRecord.objects.create(
+                    order_id=order_result['order_id'],
+                    symbol=symbol,
+                    side='SELL',
+                    status=order_result['status'],
+                    executed_qty=executed_qty,
+                    cummulative_quote_qty=cummulative_quote_qty,
+                    avg_price=actual_avg_price,
+                    commission=commission,
+                    commission_asset=commission_asset,
+                    payload_json=str(order_result.get('raw', {})),
+                )
+
+                # 记录事件
+                InstanceEvent.objects.create(
+                    symbol=symbol,
+                    instance_id=inst.instance_id,
+                    cycle_id=inst.cycle_id,
+                    event=event_type,
+                    price=actual_avg_price if actual_avg_price > 0 else price,
+                    base_qty=executed_qty,
+                    quote_amount=cummulative_quote_qty,
+                    note=f'order_id={order_result["order_id"]}, profit={profit} fee={commission}{commission_asset}',
+                )
+
+            action = 'TAKE_PROFIT' if event_type == 'SELL_TP' else 'STOP_LOSS'
+            msg = f'{action}: {symbol}#{inst.instance_id} cycle={inst.cycle_id} qty={executed_qty} at {actual_avg_price} profit={profit} fee={commission}{commission_asset}'
+            logger.info(msg)
+
+            # 发送通知
+            emoji = '📈' if profit > 0 else '📉'
+            tag = '止盈' if event_type == 'SELL_TP' else '止损'
+            note_text = f'{emoji}【{tag}】{symbol}#{inst.instance_id}\n卖出价: {actual_avg_price if actual_avg_price > 0 else price}\n数量: {executed_qty}\n收入: {cummulative_quote_qty} USDT\n盈亏: {profit} USDT\n手续费: {commission} {commission_asset}'
+            _send_wechat_notify(note_text)
+
+            return msg
+
+        except Exception as e:
+            logger.error(f'Error executing sell for {symbol}: {e}', exc_info=True)
+            return None
+
+    def manual_open_position(self, symbol: str, quote_amount: Decimal) -> Dict:
+        """手动开仓（API 端点）— 永远创建新实例，不复用已平仓的"""
+        if not self.trading_client:
+            return {'success': False, 'errors': ['没有激活的交易账户']}
+
+        is_new_instance = True
+        inst = None
+        try:
+            max_instances = self.get_max_instances_per_symbol(symbol)
+            current_count = CycleInstance.objects.filter(symbol=symbol).count()
+            if current_count >= max_instances:
+                return {'success': False, 'errors': [f'该交易对已达到最大实例数 ({max_instances})']}
+
+            # 手动开仓：永远创建新实例
+            next_id = current_count + 1
+            inst = CycleInstance.objects.create(
+                symbol=symbol, instance_id=next_id, is_open=False, quote_amount=quote_amount,
+            )
+
+            price = PriceCacheService.get_price(symbol)
+            if not price or price <= 0:
+                if is_new_instance: inst.delete()
+                return {'success': False, 'errors': ['无法获取价格']}
+
+            result = self._execute_buy(inst, price, quote_amount)
+            if not result and is_new_instance:
+                inst.delete()
+                return {'success': False, 'errors': ['下单失败，实例已回滚']}
+            elif not result:
+                return {'success': False, 'errors': ['下单失败']}
+
+            return {'success': True, 'message': result}
+        except Exception as e:
+            # 任何异常都回滚新实例
+            if is_new_instance and inst:
+                try: inst.delete()
+                except: pass
+            logger.error(f'manual_open_position failed: {e}', exc_info=True)
+            return {'success': False, 'errors': [f'开仓异常: {str(e)}']}
